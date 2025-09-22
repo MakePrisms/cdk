@@ -636,7 +636,38 @@ impl Mint {
         )
         .await?;
 
-        let settled_internally_amount = match self
+        // Try payment processor internal settlement first
+        let payment_processor_result = if let Ok(backend) =
+            self.get_payment_processor(quote.unit.clone(), PaymentMethod::Bolt11)
+        {
+            match backend
+                .settle_internally(&quote.unit, quote.clone().try_into()?)
+                .await
+            {
+                Ok(Some(result)) => {
+                    tracing::info!("Payment processor internal settlement successful");
+                    Some(result)
+                }
+                Ok(None) => {
+                    tracing::debug!("Payment processor internal settlement not applicable");
+                    None
+                }
+                Err(e) => {
+                    tracing::error!("Payment processor internal settlement failed: {:?}", e);
+                    // Only return ExpiredQuote if the error string contains the expired message from strike
+                    if format!("{e:?}").contains("Currency exchange quote has expired") {
+                        return Err(Error::ExpiredQuote(0, 0));
+                    }
+                    return Err(Error::PaymentFailed);
+                }
+            }
+        } else {
+            tracing::debug!("No payment processor available for internal settlement");
+            None
+        };
+
+        // Always try mint-level internal settlement to update internal state
+        let mint_internal_result = match self
             .handle_internal_melt_mint(&mut tx, &quote, melt_request)
             .await
         {
@@ -655,8 +686,62 @@ impl Mint {
             }
         };
 
+        // Determine the final settlement result and handle quote updates
+        let (settled_internally_amount, updated_quote) = match (
+            payment_processor_result,
+            mint_internal_result,
+        ) {
+            (Some(processor_result), Some(_mint_amount)) => {
+                tracing::info!(
+                    "Both payment processor and mint internal settlement succeeded, using processor result"
+                );
+                // Update quote lookup ID if it changed during processor settlement
+                let final_quote = if Some(processor_result.payment_lookup_id.clone()).as_ref()
+                    != quote.request_lookup_id.as_ref()
+                {
+                    tracing::info!(
+                        "Payment lookup id changed during internal payment from {:?} to {}",
+                        quote.request_lookup_id,
+                        processor_result.payment_lookup_id
+                    );
+                    let mut updated_quote = quote.clone();
+                    updated_quote.request_lookup_id =
+                        Some(processor_result.payment_lookup_id.clone());
+                    if let Err(err) = tx
+                        .update_melt_quote_request_lookup_id(
+                            &updated_quote.id,
+                            &processor_result.payment_lookup_id,
+                        )
+                        .await
+                    {
+                        tracing::warn!("Could not update payment lookup id: {}", err);
+                    }
+                    updated_quote
+                } else {
+                    quote.clone()
+                };
+                (Some(processor_result.total_spent), final_quote)
+            }
+            (Some(processor_result), None) => {
+                tracing::info!(
+                    "Payment processor settlement succeeded, no mint internal settlement needed"
+                );
+                (Some(processor_result.total_spent), quote.clone())
+            }
+            (None, Some(mint_amount)) => {
+                tracing::info!("Mint internal settlement succeeded");
+                (Some(mint_amount), quote.clone())
+            }
+            (None, None) => {
+                tracing::debug!(
+                    "No internal settlement available, proceeding with external payment"
+                );
+                (None, quote.clone())
+            }
+        };
+
         let (tx, preimage, amount_spent_quote_unit, quote) = match settled_internally_amount {
-            Some(amount_spent) => (tx, None, amount_spent, quote),
+            Some(amount_spent) => (tx, None, amount_spent, updated_quote),
 
             None => {
                 // If the quote unit is SAT or MSAT we can check that the expected fees are

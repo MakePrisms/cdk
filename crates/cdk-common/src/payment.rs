@@ -318,6 +318,18 @@ pub trait MintPayment {
         &self,
         payment_identifier: &PaymentIdentifier,
     ) -> Result<MakePaymentResponse, Self::Err>;
+
+    /// Settle payment internally (optional for backends that support internal settlement)
+    /// Returns None if internal settlement is not supported or not applicable
+    /// Returns Some(MakePaymentResponse) if internal settlement was performed
+    async fn settle_internally(
+        &self,
+        _unit: &CurrencyUnit,
+        _options: OutgoingPaymentOptions,
+    ) -> Result<Option<MakePaymentResponse>, Self::Err> {
+        // Default implementation - no internal settlement support
+        Ok(None)
+    }
 }
 
 /// An event emitted which should be handled by the mint

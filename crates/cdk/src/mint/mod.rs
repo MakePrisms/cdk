@@ -912,23 +912,35 @@ impl Mint {
             Error::AmountOverflow
         })?;
 
-        if let Some(amount) = mint_quote.amount {
-            if amount > inputs_amount_quote_unit {
-                tracing::debug!(
-                    "Not enough inputs provided: {} needed {}",
-                    inputs_amount_quote_unit,
-                    amount
-                );
-                return Err(Error::InsufficientFunds);
-            }
+        // NOTE: this change makes it so that the melt quote determines the number of inputs required
+        // This is needed for when currencies do not match
+        // NOTE: we need to make sure this is safe and that a user cannot exploit this by providing a melt quote with a larger amount the mint quote in
+        // the converted amount.
+        if melt_quote.amount > inputs_amount_quote_unit {
+            tracing::debug!(
+                "Not enough inputs provided: {} needed {}",
+                inputs_amount_quote_unit,
+                melt_quote.amount
+            );
+            return Err(Error::InsufficientFunds);
         }
 
-        let amount = melt_quote.amount;
+        // For cross-currency internal payments, we need to use the mint quote amount (target currency)
+        // instead of the melt quote amount (source currency)
+        let amount = if let Some(mint_amount) = mint_quote.amount {
+            // Use the mint quote amount when it's specified (target currency)
+            mint_amount
+        } else {
+            // Fallback to melt quote amount for same-currency payments
+            melt_quote.amount
+        };
 
         tracing::info!(
-            "Mint quote {} paid {} from internal payment.",
+            "Mint quote {} paid {} from internal payment (mint_quote.amount: {:?}, melt_quote.amount: {}).",
             mint_quote.id,
-            amount
+            amount,
+            mint_quote.amount,
+            melt_quote.amount
         );
 
         let total_paid = tx
