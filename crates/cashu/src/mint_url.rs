@@ -89,6 +89,9 @@ impl MintUrl {
         // Get the current path segments
         let base_path = url.path();
 
+        // Trim leading slash from path to avoid double slashes
+        let path = path.trim_start_matches('/');
+
         // Check if the path has a trailing slash to avoid double slashes
         let normalized_path = if base_path.ends_with('/') {
             format!("{base_path}{path}")
@@ -198,6 +201,25 @@ mod tests {
             format!("{url_with_path_with_slash}hello/world"),
             url.join_paths(&["hello", "world"]).unwrap().to_string()
         );
+    }
+
+    #[test]
+    fn test_join_with_leading_slash() {
+        let url = MintUrl::from_str("http://example.com").unwrap();
+
+        // Test that joining with a leading slash doesn't create double slashes
+        let result = url.join("/test/url").unwrap();
+        assert_eq!(result.to_string(), "http://example.com/test/url");
+
+        // Test with base URL that has a trailing slash
+        let url_with_slash = MintUrl::from_str("http://example.com/").unwrap();
+        let result = url_with_slash.join("/test/url").unwrap();
+        assert_eq!(result.to_string(), "http://example.com/test/url");
+
+        // Test with base URL that has a path
+        let url_with_path = MintUrl::from_str("http://example.com/api").unwrap();
+        let result = url_with_path.join("/test/url").unwrap();
+        assert_eq!(result.to_string(), "http://example.com/api/test/url");
     }
 
     #[test]
