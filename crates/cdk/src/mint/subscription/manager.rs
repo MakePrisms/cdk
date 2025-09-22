@@ -1,9 +1,12 @@
 //! Specific Subscription for the cdk crate
+use std::collections::HashMap;
 use std::ops::Deref;
 
+use cdk_common::common::PaymentProcessorKey;
 use cdk_common::database::DynMintDatabase;
 use cdk_common::mint::MintQuote;
 use cdk_common::nut17::Notification;
+use cdk_common::payment::DynMintPayment;
 use cdk_common::quote_id::QuoteId;
 use cdk_common::{Amount, MintQuoteBolt12Response, NotificationPayload, PaymentMethod};
 
@@ -32,7 +35,29 @@ impl Default for PubSubManager {
 
 impl From<DynMintDatabase> for PubSubManager {
     fn from(val: DynMintDatabase) -> Self {
-        PubSubManager(OnSubscription(Some(val)).into())
+        PubSubManager(
+            OnSubscription {
+                localstore: Some(val),
+                payment_processors: None,
+            }
+            .into(),
+        )
+    }
+}
+
+impl PubSubManager {
+    /// Create a new PubSubManager with all the necessary components
+    pub fn new(
+        localstore: DynMintDatabase,
+        payment_processors: HashMap<PaymentProcessorKey, DynMintPayment>,
+    ) -> Self {
+        PubSubManager(
+            OnSubscription {
+                localstore: Some(localstore),
+                payment_processors: Some(payment_processors),
+            }
+            .into(),
+        )
     }
 }
 

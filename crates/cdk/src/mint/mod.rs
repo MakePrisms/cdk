@@ -205,7 +205,10 @@ impl Mint {
 
         Ok(Self {
             signatory,
-            pubsub_manager: Arc::new(localstore.clone().into()),
+            pubsub_manager: Arc::new(PubSubManager::new(
+                localstore.clone(),
+                payment_processors.clone(),
+            )),
             localstore,
             #[cfg(feature = "auth")]
             oidc_client: computed_info.nuts.nut21.as_ref().map(|nut21| {
