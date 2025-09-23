@@ -299,6 +299,7 @@ fn create_ldk_settings(
         mint_management_rpc: None,
         prometheus: None,
         auth: None,
+        strike: None,
     }
 }
 

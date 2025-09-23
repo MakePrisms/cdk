@@ -138,6 +138,8 @@ pub enum LnBackend {
     LdkNode,
     #[cfg(feature = "grpc-processor")]
     GrpcProcessor,
+    #[cfg(feature = "strike")]
+    Strike,
 }
 
 impl std::str::FromStr for LnBackend {
@@ -157,6 +159,8 @@ impl std::str::FromStr for LnBackend {
             "ldk-node" | "ldknode" => Ok(LnBackend::LdkNode),
             #[cfg(feature = "grpc-processor")]
             "grpcprocessor" => Ok(LnBackend::GrpcProcessor),
+            #[cfg(feature = "strike")]
+            "strike" => Ok(LnBackend::Strike),
             _ => Err(format!("Unknown Lightning backend: {s}")),
         }
     }
@@ -341,6 +345,13 @@ pub struct GrpcProcessor {
     pub tls_dir: Option<PathBuf>,
 }
 
+#[cfg(feature = "strike")]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Strike {
+    pub api_key: String,
+    pub supported_units: Vec<CurrencyUnit>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum DatabaseEngine {
@@ -483,6 +494,8 @@ pub struct Settings {
     #[cfg(feature = "fakewallet")]
     pub fake_wallet: Option<FakeWallet>,
     pub grpc_processor: Option<GrpcProcessor>,
+    #[cfg(feature = "strike")]
+    pub strike: Option<Strike>,
     pub database: Database,
     #[cfg(feature = "auth")]
     pub auth_database: Option<AuthDatabase>,
@@ -615,6 +628,13 @@ impl Settings {
                 assert!(
                     settings.grpc_processor.is_some(),
                     "GRPC backend requires a valid config."
+                )
+            }
+            #[cfg(feature = "strike")]
+            LnBackend::Strike => {
+                assert!(
+                    settings.strike.is_some(),
+                    "Strike backend requires a valid config."
                 )
             }
         }
