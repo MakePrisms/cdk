@@ -91,6 +91,7 @@ ln_backend = "fakewallet"
 # max_mint=500000
 # min_melt=1
 # max_melt=500000
+# internal_settlement_only = false  # Only allow melts for invoices that were created as mint quotes in this mint
 
 [cln]
 rpc_path = ""

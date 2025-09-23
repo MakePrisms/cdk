@@ -287,6 +287,7 @@ fn create_ldk_settings(
             max_mint: 500_000.into(),
             min_melt: 1.into(),
             max_melt: 500_000.into(),
+            internal_settlement_only: false,
         },
         cln: None,
         lnbits: None,
