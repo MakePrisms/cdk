@@ -338,18 +338,18 @@ async fn configure_mint_builder(
     runtime: Option<std::sync::Arc<tokio::runtime::Runtime>>,
     work_dir: &Path,
     kv_store: Option<Arc<dyn MintKVStore<Err = cdk::cdk_database::Error> + Send + Sync>>,
-) -> Result<MintBuilder> {
+) -> Result<(MintBuilder, Vec<Router>)> {
     // Configure basic mint information
     let mint_builder = configure_basic_info(settings, mint_builder);
 
     // Configure lightning backend
-    let mint_builder =
+    let (mint_builder, additional_routers) =
         configure_lightning_backend(settings, mint_builder, runtime, work_dir, kv_store).await?;
 
     // Configure caching
     let mint_builder = configure_cache(settings, mint_builder);
 
-    Ok(mint_builder)
+    Ok((mint_builder, additional_routers))
 }
 
 /// Configures basic mint information (name, contact info, descriptions, etc.)
@@ -409,7 +409,7 @@ async fn configure_lightning_backend(
     _runtime: Option<std::sync::Arc<tokio::runtime::Runtime>>,
     work_dir: &Path,
     _kv_store: Option<Arc<dyn MintKVStore<Err = cdk::cdk_database::Error> + Send + Sync>>,
-) -> Result<MintBuilder> {
+) -> Result<(MintBuilder, Vec<Router>)> {
     let mint_melt_limits = MintMeltLimits {
         mint_min: settings.ln.min_mint,
         mint_max: settings.ln.max_mint,
@@ -548,6 +548,39 @@ async fn configure_lightning_backend(
             )
             .await?;
         }
+        #[cfg(feature = "strike")]
+        LnBackend::Strike => {
+            let strike_settings = settings.clone().strike.expect("Checked at config load");
+            tracing::info!(
+                "Using Strike backend with supported units: {:?}",
+                strike_settings.supported_units
+            );
+
+            let mut webhook_routers = Vec::new();
+
+            for unit in &strike_settings.supported_units {
+                // Create Strike backend with webhook router for this unit
+                let (strike, webhook_router) = strike_settings
+                    .setup_with_webhook(settings, unit.clone())
+                    .await?;
+
+                webhook_routers.push(webhook_router);
+
+                #[cfg(feature = "prometheus")]
+                let strike = MetricsMintPayment::new(strike);
+
+                mint_builder = configure_backend_for_unit(
+                    settings,
+                    mint_builder,
+                    unit.clone(),
+                    mint_melt_limits,
+                    Arc::new(strike),
+                )
+                .await?;
+            }
+
+            return Ok((mint_builder, webhook_routers));
+        }
         LnBackend::None => {
             tracing::error!(
                 "Payment backend was not set or feature disabled. {:?}",
@@ -557,7 +590,7 @@ async fn configure_lightning_backend(
         }
     };
 
-    Ok(mint_builder)
+    Ok((mint_builder, Vec::new()))
 }
 
 /// Helper function to configure a mint builder with a lightning backend for a specific currency unit
@@ -605,7 +638,8 @@ async fn configure_backend_for_unit(
         feature = "lnd",
         feature = "fakewallet",
         feature = "grpc-processor",
-        feature = "ldk-node"
+        feature = "ldk-node",
+        feature = "strike"
     ))]
     {
         let nut17_supported = SupportedMethods::default_bolt11(unit);
@@ -1164,7 +1198,7 @@ pub async fn run_mintd_with_shutdown(
         }
     };
 
-    let mint_builder =
+    let (mint_builder, backend_routers) =
         configure_mint_builder(settings, maybe_mint_builder, runtime, work_dir, Some(kv)).await?;
     #[cfg(feature = "auth")]
     let mint_builder = setup_authentication(settings, work_dir, mint_builder, db_password).await?;
@@ -1182,13 +1216,17 @@ pub async fn run_mintd_with_shutdown(
     // Pending melt quotes where the payment has **failed** inputs are reset to unspent
     mint.check_pending_melt_quotes().await?;
 
+    // Combine external routers with backend-specific routers (currently only Strike)
+    let mut all_routers = routers;
+    all_routers.extend(backend_routers);
+
     start_services_with_shutdown(
         mint.clone(),
         settings,
         work_dir,
         config_mint_info,
         shutdown_signal,
-        routers,
+        all_routers,
     )
     .await
 }

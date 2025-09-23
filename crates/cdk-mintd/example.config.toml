@@ -85,7 +85,7 @@ max_connections = 20
 connection_timeout_seconds = 10
 
 [ln]
-# Required ln backend `cln`, `lnd`, `fakewallet`, 'lnbits', 'ldknode'
+# Required ln backend `cln`, `lnd`, `fakewallet`, 'lnbits', 'ldknode', 'strike'
 ln_backend = "fakewallet"
 # min_mint=1
 # max_mint=500000
@@ -164,6 +164,10 @@ max_delay_time = 3
 # addr = "127.0.0.1"
 # port = 50051
 # tls_dir = "/path/to/tls"
+
+# [strike]
+# api_key = "your_strike_api_key_here"
+# supported_units = ["sat", "usd"]
 
 # [auth]
 # Set to true to enable authentication features (defaults to false)
