@@ -223,6 +223,7 @@ pub fn create_fake_wallet_settings(
         mint_management_rpc: None,
         auth: None,
         prometheus: Some(Default::default()),
+        strike: None,
     }
 }
 
@@ -273,6 +274,7 @@ pub fn create_cln_settings(
         mint_management_rpc: None,
         auth: None,
         prometheus: Some(Default::default()),
+        strike: None,
     }
 }
 
@@ -321,5 +323,6 @@ pub fn create_lnd_settings(
         mint_management_rpc: None,
         auth: None,
         prometheus: Some(Default::default()),
+        strike: None,
     }
 }
