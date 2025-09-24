@@ -174,6 +174,9 @@ pub struct Ln {
     pub max_mint: Amount,
     pub min_melt: Amount,
     pub max_melt: Amount,
+    /// Only allow internal settlement for melts (requires matching mint quote)
+    #[serde(default)]
+    pub internal_settlement_only: bool,
 }
 
 impl Default for Ln {
@@ -185,6 +188,7 @@ impl Default for Ln {
             max_mint: 500_000.into(),
             min_melt: 1.into(),
             max_melt: 500_000.into(),
+            internal_settlement_only: false,
         }
     }
 }

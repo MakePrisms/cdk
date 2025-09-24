@@ -54,6 +54,7 @@ const CDK_MINT_PRIMARY_NAMESPACE: &str = "cdk_mint";
 const CDK_MINT_CONFIG_SECONDARY_NAMESPACE: &str = "config";
 const CDK_MINT_CONFIG_KV_KEY: &str = "mint_info";
 const CDK_MINT_QUOTE_TTL_KV_KEY: &str = "quote_ttl";
+const CDK_MINT_INTERNAL_SETTLEMENT_ONLY_KV_KEY: &str = "internal_settlement_only";
 
 /// Cashu Mint
 #[derive(Clone)]
@@ -537,6 +538,46 @@ impl Mint {
             .await?;
 
         Ok(quote_ttl_bytes.is_some())
+    }
+
+    /// Set internal settlement only setting
+    #[instrument(skip_all)]
+    pub async fn set_internal_settlement_only(
+        &self,
+        internal_settlement_only: bool,
+    ) -> Result<(), Error> {
+        let value_bytes = serde_json::to_vec(&internal_settlement_only)?;
+        let mut tx = self.localstore.begin_transaction().await?;
+        tx.kv_write(
+            CDK_MINT_PRIMARY_NAMESPACE,
+            CDK_MINT_CONFIG_SECONDARY_NAMESPACE,
+            CDK_MINT_INTERNAL_SETTLEMENT_ONLY_KV_KEY,
+            &value_bytes,
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Get internal settlement only setting
+    #[instrument(skip_all)]
+    pub async fn internal_settlement_only(&self) -> Result<bool, Error> {
+        let value_bytes = self
+            .localstore
+            .kv_read(
+                CDK_MINT_PRIMARY_NAMESPACE,
+                CDK_MINT_CONFIG_SECONDARY_NAMESPACE,
+                CDK_MINT_INTERNAL_SETTLEMENT_ONLY_KV_KEY,
+            )
+            .await?;
+
+        match value_bytes {
+            Some(bytes) => {
+                let value: bool = serde_json::from_slice(&bytes)?;
+                Ok(value)
+            }
+            None => Ok(false), // Default to false
+        }
     }
 
     #[instrument(skip_all)]

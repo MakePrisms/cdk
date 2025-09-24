@@ -567,6 +567,7 @@ where
         | ErrorCode::MultipleUnits
         | ErrorCode::UnitMismatch
         | ErrorCode::ClearAuthRequired
+        | ErrorCode::InternalSettlementOnly
         | ErrorCode::BlindAuthRequired => StatusCode::BAD_REQUEST,
 
         // Auth failures (401 Unauthorized)
