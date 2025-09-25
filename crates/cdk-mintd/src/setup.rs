@@ -376,7 +376,7 @@ impl config::Strike {
 impl LnBackendSetup for config::Nwc {
     async fn setup(
         &self,
-        _settings: &Settings,
+        settings: &Settings,
         unit: CurrencyUnit,
         _runtime: Option<std::sync::Arc<tokio::runtime::Runtime>>,
         _work_dir: &Path,
@@ -387,7 +387,11 @@ impl LnBackendSetup for config::Nwc {
             percent_fee_reserve: self.fee_percent,
         };
 
-        let nwc = cdk_nwc::NWCWallet::new(&self.nwc_uri, fee_reserve, unit).await?;
+        let internal_settlement_only = settings.ln.internal_settlement_only;
+
+        let nwc =
+            cdk_nwc::NWCWallet::new(&self.nwc_uri, fee_reserve, unit, internal_settlement_only)
+                .await?;
         Ok(nwc)
     }
 }

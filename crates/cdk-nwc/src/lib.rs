@@ -70,6 +70,7 @@ impl NWCWallet {
         nwc_uri: &str,
         fee_reserve: FeeReserve,
         unit: CurrencyUnit,
+        internal_settlement_only: bool,
     ) -> Result<Self, Error> {
         // NWC requires TLS for talking to the relay
         if rustls::crypto::CryptoProvider::get_default().is_none() {
@@ -81,21 +82,23 @@ impl NWCWallet {
 
         let nwc_client = Arc::new(NWC::new(uri));
 
-        let required_methods = &[
-            "pay_invoice",
-            "get_balance",
+        let mut required_methods = vec![
             "make_invoice",
             "lookup_invoice",
             "list_transactions",
             "get_info",
         ];
 
+        if !internal_settlement_only {
+            required_methods.push("pay_invoice");
+        }
+
         let required_notifications = &["payment_received"];
 
         NWCWallet::validate_supported_methods_and_notifications(
             &nwc_client,
             VALIDATION_TIMEOUT_SECS,
-            required_methods,
+            &required_methods,
             required_notifications,
         )
         .await?;
