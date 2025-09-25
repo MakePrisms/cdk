@@ -28,8 +28,9 @@ cdk-axum = { workspace = true, features = ["auth"] }
 cdk-sqlite = { workspace = true }
 cdk-redb = { workspace = true }
 cdk-fake-wallet = { workspace = true }
+cdk-nwc = { workspace = true }
 cdk-common = { workspace = true, features = ["mint", "wallet", "auth"] }
-cdk-mintd = { workspace = true, features = ["cln", "lnd", "fakewallet", "grpc-processor", "auth", "lnbits", "management-rpc", "sqlite", "postgres", "ldk-node", "prometheus", "strike"] }
+cdk-mintd = { workspace = true, features = ["cln", "lnd", "fakewallet", "grpc-processor", "auth", "lnbits", "management-rpc", "sqlite", "postgres", "ldk-node", "prometheus", "strike", "nwc"] }
 futures = { workspace = true, default-features = false, features = [
     "executor",
 ] }

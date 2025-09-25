@@ -18,7 +18,8 @@ use cdk::nuts::CurrencyUnit;
     feature = "cln",
     feature = "lnd",
     feature = "ldk-node",
-    feature = "fakewallet"
+    feature = "fakewallet",
+    feature = "nwc"
 ))]
 use cdk::types::FeeReserve;
 
@@ -367,5 +368,26 @@ impl config::Strike {
         let webhook_router = strike.create_invoice_webhook(&webhook_endpoint).await?;
 
         Ok((strike, webhook_router))
+    }
+}
+
+#[cfg(feature = "nwc")]
+#[async_trait]
+impl LnBackendSetup for config::Nwc {
+    async fn setup(
+        &self,
+        _settings: &Settings,
+        unit: CurrencyUnit,
+        _runtime: Option<std::sync::Arc<tokio::runtime::Runtime>>,
+        _work_dir: &Path,
+        _kv_store: Option<Arc<dyn MintKVStore<Err = cdk::cdk_database::Error> + Send + Sync>>,
+    ) -> anyhow::Result<cdk_nwc::NWCWallet> {
+        let fee_reserve = FeeReserve {
+            min_fee_reserve: self.reserve_fee_min,
+            percent_fee_reserve: self.fee_percent,
+        };
+
+        let nwc = cdk_nwc::NWCWallet::new(&self.nwc_uri, fee_reserve, unit).await?;
+        Ok(nwc)
     }
 }

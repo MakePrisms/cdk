@@ -294,6 +294,7 @@ fn create_ldk_settings(
         lnd: None,
         ldk_node: Some(ldk_config),
         fake_wallet: None,
+        nwc: None,
         grpc_processor: None,
         database: cdk_mintd::config::Database::default(),
         auth_database: None,
