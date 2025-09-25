@@ -21,7 +21,8 @@ use cdk::mint::{Mint, MintBuilder, MintMeltLimits};
     feature = "lnd",
     feature = "ldk-node",
     feature = "fakewallet",
-    feature = "grpc-processor"
+    feature = "grpc-processor",
+    feature = "nwc"
 ))]
 use cdk::nuts::nut17::SupportedMethods;
 use cdk::nuts::nut19::{CachedEndpoint, Method as NUT19Method, Path as NUT19Path};
@@ -30,7 +31,8 @@ use cdk::nuts::nut19::{CachedEndpoint, Method as NUT19Method, Path as NUT19Path}
     feature = "lnbits",
     feature = "lnd",
     feature = "ldk-node",
-    feature = "fakewallet"
+    feature = "fakewallet",
+    feature = "nwc"
 ))]
 use cdk::nuts::CurrencyUnit;
 #[cfg(feature = "auth")]
@@ -581,6 +583,22 @@ async fn configure_lightning_backend(
 
             return Ok((mint_builder, webhook_routers));
         }
+        #[cfg(feature = "nwc")]
+        LnBackend::Nwc => {
+            let nwc_settings = settings.clone().nwc.expect("NWC config defined");
+            let nwc = nwc_settings
+                .setup(settings, CurrencyUnit::Sat, None, work_dir, None)
+                .await?;
+
+            mint_builder = configure_backend_for_unit(
+                settings,
+                mint_builder,
+                CurrencyUnit::Sat,
+                mint_melt_limits,
+                Arc::new(nwc),
+            )
+            .await?;
+        }
         LnBackend::None => {
             tracing::error!(
                 "Payment backend was not set or feature disabled. {:?}",
@@ -639,7 +657,8 @@ async fn configure_backend_for_unit(
         feature = "fakewallet",
         feature = "grpc-processor",
         feature = "ldk-node",
-        feature = "strike"
+        feature = "strike",
+        feature = "nwc"
     ))]
     {
         let nut17_supported = SupportedMethods::default_bolt11(unit);

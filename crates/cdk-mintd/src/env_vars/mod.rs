@@ -25,6 +25,8 @@ mod lnbits;
 mod lnd;
 #[cfg(feature = "management-rpc")]
 mod management_rpc;
+#[cfg(feature = "nwc")]
+mod nwc;
 #[cfg(feature = "prometheus")]
 mod prometheus;
 #[cfg(feature = "strike")]
@@ -54,6 +56,8 @@ pub use lnd::*;
 #[cfg(feature = "management-rpc")]
 pub use management_rpc::*;
 pub use mint_info::*;
+#[cfg(feature = "nwc")]
+pub use nwc::*;
 #[cfg(feature = "prometheus")]
 pub use prometheus::*;
 #[cfg(feature = "strike")]
@@ -155,6 +159,10 @@ impl Settings {
             #[cfg(feature = "strike")]
             LnBackend::Strike => {
                 self.strike = Some(self.strike.clone().unwrap_or_default().from_env());
+            }
+            #[cfg(feature = "nwc")]
+            LnBackend::Nwc => {
+                self.nwc = Some(self.nwc.clone().unwrap_or_default().from_env());
             }
             LnBackend::None => bail!("Ln backend must be set"),
             #[allow(unreachable_patterns)]
