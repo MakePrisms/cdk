@@ -142,6 +142,20 @@ impl Mint {
             ..
         } = melt_request;
 
+        // Check if internal settlement only is enabled and validate matching mint quote exists
+        let internal_settlement_only = self.internal_settlement_only().await?;
+        if internal_settlement_only {
+            let mut tx = self.localstore.begin_transaction().await?;
+            let matching_mint_quote = tx.get_mint_quote_by_request(&request.to_string()).await?;
+            tx.commit().await?;
+
+            if matching_mint_quote.is_none() {
+                let mint_info = self.mint_info().await?;
+                let mint_name = mint_info.name.unwrap_or_else(|| "this mint".to_string());
+                return Err(Error::InternalSettlementOnly(mint_name));
+            }
+        }
+
         let ln = self
             .payment_processors
             .get(&PaymentProcessorKey::new(
@@ -239,6 +253,20 @@ impl Mint {
             unit,
             options,
         } = melt_request;
+
+        // Check if internal settlement only is enabled and validate matching mint quote exists
+        let internal_settlement_only = self.internal_settlement_only().await?;
+        if internal_settlement_only {
+            let mut tx = self.localstore.begin_transaction().await?;
+            let matching_mint_quote = tx.get_mint_quote_by_request(&request.to_string()).await?;
+            tx.commit().await?;
+
+            if matching_mint_quote.is_none() {
+                let mint_info = self.mint_info().await?;
+                let mint_name = mint_info.name.unwrap_or_else(|| "this mint".to_string());
+                return Err(Error::InternalSettlementOnly(mint_name));
+            }
+        }
 
         let offer = Offer::from_str(request).map_err(|_| Error::InvalidPaymentRequest)?;
 

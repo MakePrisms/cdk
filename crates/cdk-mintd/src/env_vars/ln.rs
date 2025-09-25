@@ -11,6 +11,7 @@ pub const ENV_LN_MIN_MINT: &str = "CDK_MINTD_LN_MIN_MINT";
 pub const ENV_LN_MAX_MINT: &str = "CDK_MINTD_LN_MAX_MINT";
 pub const ENV_LN_MIN_MELT: &str = "CDK_MINTD_LN_MIN_MELT";
 pub const ENV_LN_MAX_MELT: &str = "CDK_MINTD_LN_MAX_MELT";
+pub const ENV_LN_INTERNAL_SETTLEMENT_ONLY: &str = "CDK_MINTD_LN_INTERNAL_SETTLEMENT_ONLY";
 
 impl Ln {
     pub fn from_env(mut self) -> Self {
@@ -50,6 +51,12 @@ impl Ln {
         if let Ok(max_melt_str) = env::var(ENV_LN_MAX_MELT) {
             if let Ok(amount) = max_melt_str.parse::<u64>() {
                 self.max_melt = amount.into();
+            }
+        }
+
+        if let Ok(internal_settlement_only_str) = env::var(ENV_LN_INTERNAL_SETTLEMENT_ONLY) {
+            if let Ok(internal_settlement_only) = internal_settlement_only_str.parse::<bool>() {
+                self.internal_settlement_only = internal_settlement_only;
             }
         }
 
