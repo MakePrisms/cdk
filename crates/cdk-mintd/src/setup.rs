@@ -18,7 +18,8 @@ use cdk::nuts::CurrencyUnit;
     feature = "cln",
     feature = "lnd",
     feature = "ldk-node",
-    feature = "fakewallet"
+    feature = "fakewallet",
+    feature = "nwc"
 ))]
 use cdk::types::FeeReserve;
 
@@ -325,5 +326,78 @@ impl LnBackendSetup for config::LdkNode {
         ldk_node.set_web_addr(webserver_addr);
 
         Ok(ldk_node)
+    }
+}
+
+#[cfg(feature = "strike")]
+#[async_trait]
+impl LnBackendSetup for config::Strike {
+    async fn setup(
+        &self,
+        _settings: &Settings,
+        _unit: CurrencyUnit,
+        _runtime: Option<std::sync::Arc<tokio::runtime::Runtime>>,
+        _work_dir: &Path,
+        _kv_store: Option<Arc<dyn MintKVStore<Err = cdk::cdk_database::Error> + Send + Sync>>,
+    ) -> anyhow::Result<cdk_strike::Strike> {
+        anyhow::bail!(
+            "Strike backend cannot use the standard setup() method due to webhook routing requirements. \
+             Use setup_with_webhook() instead, or configure Strike through the mint builder."
+        )
+    }
+}
+
+#[cfg(feature = "strike")]
+impl config::Strike {
+    /// Special setup for Strike that includes webhook router
+    /// This is necessary because Strike requires webhook endpoints on the same server
+    pub async fn setup_with_webhook(
+        &self,
+        settings: &Settings,
+        unit: CurrencyUnit,
+        kv_store: cdk_common::database::mint::DynMintKVStore,
+    ) -> anyhow::Result<(cdk_strike::Strike, axum::Router)> {
+        use cdk::mint_url::MintUrl;
+
+        let webhook_endpoint = format!("/webhook/strike/{}/invoice", unit);
+        let mint_url: MintUrl = settings.info.url.parse()?;
+        let webhook_url = mint_url.join(&webhook_endpoint)?;
+
+        let strike = cdk_strike::Strike::new(
+            self.api_key.clone(),
+            unit,
+            webhook_url.to_string(),
+            kv_store,
+        )
+        .await?;
+
+        let webhook_router = strike.create_invoice_webhook(&webhook_endpoint).await?;
+
+        Ok((strike, webhook_router))
+    }
+}
+
+#[cfg(feature = "nwc")]
+#[async_trait]
+impl LnBackendSetup for config::Nwc {
+    async fn setup(
+        &self,
+        settings: &Settings,
+        unit: CurrencyUnit,
+        _runtime: Option<std::sync::Arc<tokio::runtime::Runtime>>,
+        _work_dir: &Path,
+        _kv_store: Option<Arc<dyn MintKVStore<Err = cdk::cdk_database::Error> + Send + Sync>>,
+    ) -> anyhow::Result<cdk_nwc::NWCWallet> {
+        let fee_reserve = FeeReserve {
+            min_fee_reserve: self.reserve_fee_min,
+            percent_fee_reserve: self.fee_percent,
+        };
+
+        let internal_settlement_only = settings.ln.internal_settlement_only;
+
+        let nwc =
+            cdk_nwc::NWCWallet::new(&self.nwc_uri, fee_reserve, unit, internal_settlement_only)
+                .await?;
+        Ok(nwc)
     }
 }

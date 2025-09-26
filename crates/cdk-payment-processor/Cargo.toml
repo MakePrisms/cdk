@@ -32,6 +32,8 @@ cdk-lnd = { workspace = true, optional = true }
 cdk-fake-wallet = { workspace = true, optional = true }
 cdk-sqlite = { workspace = true, optional = true }
 clap = { workspace = true, features = ["derive"] }
+cdk-strike = { workspace = true, optional = true }
+cdk-nwc = { workspace = true, optional = true }
 serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true

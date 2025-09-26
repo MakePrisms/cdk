@@ -156,6 +156,9 @@ pub enum Error {
     /// ecash already issued for quote
     #[error("Quote already issued")]
     IssuedQuote,
+    /// Cash can only be spent at this mint (internal settlement only)
+    #[error("This cash can only be spent at {0}")]
+    InternalSettlementOnly(String),
     /// Quote has already been paid
     #[error("Quote is already paid")]
     PaidQuote,
@@ -581,6 +584,10 @@ impl From<Error> for ErrorResponse {
                 code: ErrorCode::DuplicateSignature,
                 detail: err.to_string(),
             },
+            Error::InternalSettlementOnly(_) => ErrorResponse {
+                code: ErrorCode::InternalSettlementOnly,
+                detail: err.to_string(),
+            },
             _ => ErrorResponse {
                 code: ErrorCode::Unknown(9999),
                 detail: err.to_string(),
@@ -638,6 +645,7 @@ impl From<ErrorResponse> for Error {
             ErrorCode::ClearAuthRequired => Self::ClearAuthRequired,
             ErrorCode::BlindAuthRequired => Self::BlindAuthRequired,
             ErrorCode::DuplicateSignature => Self::DuplicateSignatureError,
+            ErrorCode::InternalSettlementOnly => Self::InternalSettlementOnly(String::new()),
             _ => Self::UnknownErrorResponse(err.to_string()),
         }
     }
@@ -699,6 +707,8 @@ pub enum ErrorCode {
     BlindAuthFailed,
     /// Duplicate signature from same pubkey
     DuplicateSignature,
+    /// Internal settlement only
+    InternalSettlementOnly,
     /// Unknown error code
     Unknown(u16),
 }
@@ -729,6 +739,7 @@ impl ErrorCode {
             20007 => Self::QuoteExpired,
             20008 => Self::WitnessMissingOrInvalid,
             20009 => Self::DuplicateSignature,
+            20232 => Self::InternalSettlementOnly, // Non-standard code so I added a gap to avoid conflicts
             30001 => Self::ClearAuthRequired,
             30002 => Self::ClearAuthFailed,
             31001 => Self::BlindAuthRequired,
@@ -762,6 +773,7 @@ impl ErrorCode {
             Self::QuoteExpired => 20007,
             Self::WitnessMissingOrInvalid => 20008,
             Self::DuplicateSignature => 20009,
+            Self::InternalSettlementOnly => 20232, // Non-standard code so I added a gap to avoid conflicts
             Self::ClearAuthRequired => 30001,
             Self::ClearAuthFailed => 30002,
             Self::BlindAuthRequired => 31001,

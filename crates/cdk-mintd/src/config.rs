@@ -138,6 +138,10 @@ pub enum LnBackend {
     LdkNode,
     #[cfg(feature = "grpc-processor")]
     GrpcProcessor,
+    #[cfg(feature = "strike")]
+    Strike,
+    #[cfg(feature = "nwc")]
+    Nwc,
 }
 
 impl std::str::FromStr for LnBackend {
@@ -157,6 +161,10 @@ impl std::str::FromStr for LnBackend {
             "ldk-node" | "ldknode" => Ok(LnBackend::LdkNode),
             #[cfg(feature = "grpc-processor")]
             "grpcprocessor" => Ok(LnBackend::GrpcProcessor),
+            #[cfg(feature = "strike")]
+            "strike" => Ok(LnBackend::Strike),
+            #[cfg(feature = "nwc")]
+            "nwc" => Ok(LnBackend::Nwc),
             _ => Err(format!("Unknown Lightning backend: {s}")),
         }
     }
@@ -170,6 +178,9 @@ pub struct Ln {
     pub max_mint: Amount,
     pub min_melt: Amount,
     pub max_melt: Amount,
+    /// Only allow internal settlement for melts (requires matching mint quote)
+    #[serde(default)]
+    pub internal_settlement_only: bool,
 }
 
 impl Default for Ln {
@@ -181,6 +192,7 @@ impl Default for Ln {
             max_mint: 500_000.into(),
             min_melt: 1.into(),
             max_melt: 500_000.into(),
+            internal_settlement_only: false,
         }
     }
 }
@@ -297,6 +309,14 @@ fn default_webserver_port() -> Option<u16> {
     Some(8091)
 }
 
+#[cfg(feature = "nwc")]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Nwc {
+    pub nwc_uri: String,
+    pub fee_percent: f32,
+    pub reserve_fee_min: Amount,
+}
+
 #[cfg(feature = "fakewallet")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FakeWallet {
@@ -339,6 +359,13 @@ pub struct GrpcProcessor {
     pub addr: String,
     pub port: u16,
     pub tls_dir: Option<PathBuf>,
+}
+
+#[cfg(feature = "strike")]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Strike {
+    pub api_key: String,
+    pub supported_units: Vec<CurrencyUnit>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
@@ -480,9 +507,13 @@ pub struct Settings {
     pub lnd: Option<Lnd>,
     #[cfg(feature = "ldk-node")]
     pub ldk_node: Option<LdkNode>,
+    #[cfg(feature = "nwc")]
+    pub nwc: Option<Nwc>,
     #[cfg(feature = "fakewallet")]
     pub fake_wallet: Option<FakeWallet>,
     pub grpc_processor: Option<GrpcProcessor>,
+    #[cfg(feature = "strike")]
+    pub strike: Option<Strike>,
     pub database: Database,
     #[cfg(feature = "auth")]
     pub auth_database: Option<AuthDatabase>,
@@ -615,6 +646,20 @@ impl Settings {
                 assert!(
                     settings.grpc_processor.is_some(),
                     "GRPC backend requires a valid config."
+                )
+            }
+            #[cfg(feature = "strike")]
+            LnBackend::Strike => {
+                assert!(
+                    settings.strike.is_some(),
+                    "Strike backend requires a valid config."
+                )
+            }
+            #[cfg(feature = "nwc")]
+            LnBackend::Nwc => {
+                assert!(
+                    settings.nwc.is_some(),
+                    "NWC backend requires a valid config."
                 )
             }
         }

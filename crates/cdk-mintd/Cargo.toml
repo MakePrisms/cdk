@@ -11,7 +11,7 @@ rust-version.workspace = true
 readme = "README.md"
 
 [features]
-default = ["management-rpc", "cln", "lnd", "lnbits", "fakewallet", "grpc-processor", "sqlite"]
+default = ["management-rpc", "cln", "lnd", "lnbits", "fakewallet", "grpc-processor", "sqlite", "strike", "nwc"]
 # Database features - at least one must be enabled
 sqlite = ["dep:cdk-sqlite"]
 postgres = ["dep:cdk-postgres"]
@@ -24,10 +24,12 @@ fakewallet = ["dep:cdk-fake-wallet"]
 ldk-node = ["dep:cdk-ldk-node"]
 grpc-processor = ["dep:cdk-payment-processor", "cdk-signatory/grpc"]
 sqlcipher = ["sqlite", "cdk-sqlite/sqlcipher"]
+nwc = ["dep:cdk-nwc"]
 # MSRV is not committed to with swagger enabled
 swagger = ["cdk-axum/swagger", "dep:utoipa", "dep:utoipa-swagger-ui"]
 auth = ["cdk/auth", "cdk-axum/auth", "cdk-sqlite?/auth", "cdk-postgres?/auth"]
 prometheus = ["cdk/prometheus", "dep:cdk-prometheus", "cdk-sqlite?/prometheus", "cdk-axum/prometheus"]
+strike = ["dep:cdk-strike"]
 
 [dependencies]
 anyhow.workspace = true
@@ -46,6 +48,8 @@ cdk-lnbits = { workspace = true, optional = true }
 cdk-lnd = { workspace = true, optional = true }
 cdk-ldk-node = { workspace = true, optional = true }
 cdk-fake-wallet = { workspace = true, optional = true }
+cdk-strike = { workspace = true, optional = true }
+cdk-nwc = { workspace = true, optional = true }
 cdk-axum.workspace = true
 cdk-signatory.workspace = true
 cdk-mint-rpc = { workspace = true, optional = true }

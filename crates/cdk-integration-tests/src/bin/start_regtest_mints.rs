@@ -287,18 +287,21 @@ fn create_ldk_settings(
             max_mint: 500_000.into(),
             min_melt: 1.into(),
             max_melt: 500_000.into(),
+            internal_settlement_only: false,
         },
         cln: None,
         lnbits: None,
         lnd: None,
         ldk_node: Some(ldk_config),
         fake_wallet: None,
+        nwc: None,
         grpc_processor: None,
         database: cdk_mintd::config::Database::default(),
         auth_database: None,
         mint_management_rpc: None,
         prometheus: None,
         auth: None,
+        strike: None,
     }
 }
 

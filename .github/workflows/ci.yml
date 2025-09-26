@@ -108,6 +108,8 @@ jobs:
             # Lightning backends
             -p cdk-cln,
             -p cdk-lnd,
+            -p cdk-strike,
+            -p cdk-nwc,
             -p cdk-lnbits,
             -p cdk-fake-wallet,
             -p cdk-payment-processor,
@@ -342,6 +344,8 @@ jobs:
             -p cdk-fake-wallet,
             -p cdk-cln,
             -p cdk-lnd,
+            -p cdk-strike,
+            -p cdk-nwc,
             -p cdk-mint-rpc,
             -p cdk-sqlite,
             -p cdk-mintd,

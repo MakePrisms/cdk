@@ -25,8 +25,12 @@ mod lnbits;
 mod lnd;
 #[cfg(feature = "management-rpc")]
 mod management_rpc;
+#[cfg(feature = "nwc")]
+mod nwc;
 #[cfg(feature = "prometheus")]
 mod prometheus;
+#[cfg(feature = "strike")]
+mod strike;
 
 use std::env;
 use std::str::FromStr;
@@ -52,8 +56,12 @@ pub use lnd::*;
 #[cfg(feature = "management-rpc")]
 pub use management_rpc::*;
 pub use mint_info::*;
+#[cfg(feature = "nwc")]
+pub use nwc::*;
 #[cfg(feature = "prometheus")]
 pub use prometheus::*;
+#[cfg(feature = "strike")]
+pub use strike::*;
 
 use crate::config::{DatabaseEngine, LnBackend, Settings};
 
@@ -147,6 +155,14 @@ impl Settings {
             LnBackend::GrpcProcessor => {
                 self.grpc_processor =
                     Some(self.grpc_processor.clone().unwrap_or_default().from_env());
+            }
+            #[cfg(feature = "strike")]
+            LnBackend::Strike => {
+                self.strike = Some(self.strike.clone().unwrap_or_default().from_env());
+            }
+            #[cfg(feature = "nwc")]
+            LnBackend::Nwc => {
+                self.nwc = Some(self.nwc.clone().unwrap_or_default().from_env());
             }
             LnBackend::None => bail!("Ln backend must be set"),
             #[allow(unreachable_patterns)]

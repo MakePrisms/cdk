@@ -399,6 +399,8 @@ docs-strict:
     "-p cdk-axum"
     "-p cdk-cln"
     "-p cdk-lnd"
+    "-p cdk-strike"
+    "-p cdk-nwc"
     "-p cdk-lnbits"
     "-p cdk-fake-wallet"
     "-p cdk-mint-rpc"

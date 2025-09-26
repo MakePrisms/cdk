@@ -50,6 +50,8 @@ clippy-each:
   "-p cdk-axum"
   "-p cdk-fake-wallet"
   "-p cdk-lnd"
+  "-p cdk-strike"
+  "-p cdk-nwc"
   "-p cdk-mint-rpc"
   "--bin cdk-cli"
   "--bin cdk-mintd"
