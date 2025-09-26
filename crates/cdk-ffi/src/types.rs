@@ -1558,13 +1558,18 @@ pub struct MeltMethodSettings {
     pub max_amount: Option<Amount>,
     /// For bolt11, whether mint supports amountless invoices
     pub amountless: Option<bool>,
+    /// For bolt11, whether mint only allows internal settlement
+    pub internal_melts_only: Option<bool>,
 }
 
 impl From<cdk::nuts::nut05::MeltMethodSettings> for MeltMethodSettings {
     fn from(s: cdk::nuts::nut05::MeltMethodSettings) -> Self {
-        let amountless = match s.options {
-            Some(cdk::nuts::nut05::MeltMethodOptions::Bolt11 { amountless }) => Some(amountless),
-            _ => None,
+        let (amountless, internal_melts_only) = match s.options {
+            Some(cdk::nuts::nut05::MeltMethodOptions::Bolt11 {
+                amountless,
+                internal_melts_only,
+            }) => (Some(amountless), Some(internal_melts_only)),
+            _ => (None, None),
         };
         Self {
             method: s.method.into(),
@@ -1572,6 +1577,7 @@ impl From<cdk::nuts::nut05::MeltMethodSettings> for MeltMethodSettings {
             min_amount: s.min_amount.map(Into::into),
             max_amount: s.max_amount.map(Into::into),
             amountless,
+            internal_melts_only,
         }
     }
 }
@@ -1580,9 +1586,14 @@ impl TryFrom<MeltMethodSettings> for cdk::nuts::nut05::MeltMethodSettings {
     type Error = FfiError;
 
     fn try_from(s: MeltMethodSettings) -> Result<Self, Self::Error> {
-        let options = match (s.method.clone(), s.amountless) {
-            (PaymentMethod::Bolt11, Some(amountless)) => {
-                Some(cdk::nuts::nut05::MeltMethodOptions::Bolt11 { amountless })
+        let options = match (s.method.clone(), s.amountless, s.internal_melts_only) {
+            (PaymentMethod::Bolt11, amountless, internal_melts_only)
+                if amountless.is_some() || internal_melts_only.is_some() =>
+            {
+                Some(cdk::nuts::nut05::MeltMethodOptions::Bolt11 {
+                    amountless: amountless.unwrap_or(false),
+                    internal_melts_only: internal_melts_only.unwrap_or(false),
+                })
             }
             _ => None,
         };

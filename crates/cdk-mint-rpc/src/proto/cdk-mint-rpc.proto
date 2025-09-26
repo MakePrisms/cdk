@@ -90,6 +90,7 @@ message UpdateNut04Request {
 message MeltMethodOptions {
     // Bolt11 options
     bool amountless = 1;
+    bool internal_melts_only = 2;
 }
 
 message UpdateNut05Request {

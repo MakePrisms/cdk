@@ -393,11 +393,10 @@ impl LnBackendSetup for config::Nwc {
             percent_fee_reserve: self.fee_percent,
         };
 
-        let internal_settlement_only = settings.ln.internal_settlement_only;
+        let internal_melts_only = settings.ln.internal_melts_only;
 
         let nwc =
-            cdk_nwc::NWCWallet::new(&self.nwc_uri, fee_reserve, unit, internal_settlement_only)
-                .await?;
+            cdk_nwc::NWCWallet::new(&self.nwc_uri, fee_reserve, unit, internal_melts_only).await?;
         Ok(nwc)
     }
 }

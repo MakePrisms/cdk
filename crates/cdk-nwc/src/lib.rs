@@ -70,7 +70,7 @@ impl NWCWallet {
         nwc_uri: &str,
         fee_reserve: FeeReserve,
         unit: CurrencyUnit,
-        internal_settlement_only: bool,
+        internal_melts_only: bool,
     ) -> Result<Self, Error> {
         // NWC requires TLS for talking to the relay
         if rustls::crypto::CryptoProvider::get_default().is_none() {
@@ -89,7 +89,7 @@ impl NWCWallet {
             "get_info",
         ];
 
-        if !internal_settlement_only {
+        if !internal_melts_only {
             required_methods.push("pay_invoice");
         }
 

@@ -33,6 +33,9 @@ pub struct UpdateNut05Command {
     /// Whether amountless bolt11 invoices are allowed
     #[arg(long)]
     amountless: Option<bool>,
+    /// Whether only internal settlement is allowed (no external payments)
+    #[arg(long)]
+    internal_melts_only: Option<bool>,
 }
 
 /// Executes the update_nut05 command against the mint server
@@ -46,10 +49,17 @@ pub async fn update_nut05(
     client: &mut CdkMintClient<Channel>,
     sub_command_args: &UpdateNut05Command,
 ) -> Result<()> {
-    // Create options if amountless is set
-    let options = sub_command_args
-        .amountless
-        .map(|amountless| MeltMethodOptions { amountless });
+    // Create options if amountless or internal_melts_only is set
+    let options = if sub_command_args.amountless.is_some()
+        || sub_command_args.internal_melts_only.is_some()
+    {
+        Some(MeltMethodOptions {
+            amountless: sub_command_args.amountless.unwrap_or(false),
+            internal_melts_only: sub_command_args.internal_melts_only.unwrap_or(false),
+        })
+    } else {
+        None
+    };
 
     let _response = client
         .update_nut05(Request::new(UpdateNut05Request {

@@ -77,7 +77,10 @@ impl Mint {
                 if method == PaymentMethod::Bolt11
                     && !matches!(
                         settings.options,
-                        Some(MeltMethodOptions::Bolt11 { amountless: true })
+                        Some(MeltMethodOptions::Bolt11 {
+                            amountless: true,
+                            ..
+                        })
                     )
                 {
                     return Err(Error::AmountlessInvoiceNotSupported(unit, method));
@@ -87,6 +90,30 @@ impl Mint {
             }
             None => amount,
         };
+
+        let internal_melts_only = nut05
+            .get_settings(&unit, &PaymentMethod::Bolt11)
+            .and_then(|settings| settings.options)
+            .is_some_and(|options| {
+                matches!(
+                    options,
+                    MeltMethodOptions::Bolt11 {
+                        internal_melts_only: true,
+                        ..
+                    }
+                )
+            });
+
+        if internal_melts_only {
+            let mut tx = self.localstore.begin_transaction().await?;
+            let matching_mint_quote = tx.get_mint_quote_by_request(&request.to_string()).await?;
+            tx.commit().await?;
+
+            if matching_mint_quote.is_none() {
+                let mint_name = mint_info.name.unwrap_or_else(|| "this mint".to_string());
+                return Err(Error::InternalSettlementOnly(mint_name));
+            }
+        }
 
         let is_above_max = matches!(settings.max_amount, Some(max) if amount > max);
         let is_below_min = matches!(settings.min_amount, Some(min) if amount < min);
@@ -141,20 +168,6 @@ impl Mint {
             options,
             ..
         } = melt_request;
-
-        // Check if internal settlement only is enabled and validate matching mint quote exists
-        let internal_settlement_only = self.internal_settlement_only().await?;
-        if internal_settlement_only {
-            let mut tx = self.localstore.begin_transaction().await?;
-            let matching_mint_quote = tx.get_mint_quote_by_request(&request.to_string()).await?;
-            tx.commit().await?;
-
-            if matching_mint_quote.is_none() {
-                let mint_info = self.mint_info().await?;
-                let mint_name = mint_info.name.unwrap_or_else(|| "this mint".to_string());
-                return Err(Error::InternalSettlementOnly(mint_name));
-            }
-        }
 
         let ln = self
             .payment_processors
@@ -253,20 +266,6 @@ impl Mint {
             unit,
             options,
         } = melt_request;
-
-        // Check if internal settlement only is enabled and validate matching mint quote exists
-        let internal_settlement_only = self.internal_settlement_only().await?;
-        if internal_settlement_only {
-            let mut tx = self.localstore.begin_transaction().await?;
-            let matching_mint_quote = tx.get_mint_quote_by_request(&request.to_string()).await?;
-            tx.commit().await?;
-
-            if matching_mint_quote.is_none() {
-                let mint_info = self.mint_info().await?;
-                let mint_name = mint_info.name.unwrap_or_else(|| "this mint".to_string());
-                return Err(Error::InternalSettlementOnly(mint_name));
-            }
-        }
 
         let offer = Offer::from_str(request).map_err(|_| Error::InvalidPaymentRequest)?;
 

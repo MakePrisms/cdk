@@ -261,6 +261,7 @@ pub async fn create_and_start_test_mint() -> Result<Mint> {
             PaymentMethod::Bolt11,
             MintMeltLimits::new(1, 10_000),
             Arc::new(ln_fake_backend),
+            None,
         )
         .await?;
 
