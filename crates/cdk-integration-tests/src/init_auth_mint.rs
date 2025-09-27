@@ -45,6 +45,7 @@ where
             PaymentMethod::Bolt11,
             MintMeltLimits::new(1, 300),
             Arc::new(fake_wallet),
+            None,
         )
         .await?;
 

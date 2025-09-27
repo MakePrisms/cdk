@@ -632,6 +632,7 @@ async fn configure_backend_for_unit(
                     PaymentMethod::Bolt12,
                     mint_melt_limits,
                     Arc::clone(&backend),
+                    Some(settings.ln.internal_melts_only),
                 )
                 .await?;
 
@@ -646,6 +647,7 @@ async fn configure_backend_for_unit(
             PaymentMethod::Bolt11,
             mint_melt_limits,
             backend,
+            Some(settings.ln.internal_melts_only),
         )
         .await?;
 
@@ -965,15 +967,11 @@ async fn start_services_with_shutdown(
             // First boot with RPC enabled: seed from config
             mint.set_mint_info(mint_builder_info).await?;
             mint.set_quote_ttl(desired_quote_ttl).await?;
-            mint.set_internal_settlement_only(settings.ln.internal_settlement_only)
-                .await?;
         } else {
             // If QuoteTTL has never been persisted, seed it now from config
             if !mint.quote_ttl_is_persisted().await? {
                 mint.set_quote_ttl(desired_quote_ttl).await?;
             }
-            mint.set_internal_settlement_only(settings.ln.internal_settlement_only)
-                .await?;
             // Add/refresh version information without altering stored mint_info fields
             let mint_version = MintVersion::new(
                 "cdk-mintd".to_string(),
@@ -998,8 +996,6 @@ async fn start_services_with_shutdown(
 
         mint.set_mint_info(mint_builder_info).await?;
         mint.set_quote_ttl(desired_quote_ttl).await?;
-        mint.set_internal_settlement_only(settings.ln.internal_settlement_only)
-            .await?;
     }
 
     let mint_info = mint.mint_info().await?;

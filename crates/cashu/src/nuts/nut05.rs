@@ -181,11 +181,16 @@ impl Serialize for MeltMethodSettings {
         }
 
         let mut amountless_in_top_level = false;
-        if let Some(MeltMethodOptions::Bolt11 { amountless }) = &self.options {
+        if let Some(MeltMethodOptions::Bolt11 { amountless, .. }) = &self.options {
             if *amountless {
                 num_fields += 1;
                 amountless_in_top_level = true;
             }
+        }
+
+        // Always include options field if present
+        if self.options.is_some() {
+            num_fields += 1;
         }
 
         let mut state = serializer.serialize_struct("MeltMethodSettings", num_fields)?;
@@ -204,6 +209,11 @@ impl Serialize for MeltMethodSettings {
         // If there's an amountless flag in Bolt11 options, add it at the top level
         if amountless_in_top_level {
             state.serialize_field("amountless", &true)?;
+        }
+
+        // Serialize options if present
+        if let Some(options) = &self.options {
+            state.serialize_field("options", options)?;
         }
 
         state.end()
@@ -228,6 +238,7 @@ impl<'de> Visitor<'de> for MeltMethodSettingsVisitor {
         let mut min_amount: Option<Amount> = None;
         let mut max_amount: Option<Amount> = None;
         let mut amountless: Option<bool> = None;
+        let mut internal_melts_only: Option<bool> = None;
 
         while let Some(key) = map.next_key::<String>()? {
             match key.as_str() {
@@ -268,12 +279,14 @@ impl<'de> Visitor<'de> for MeltMethodSettingsVisitor {
 
                     if let Some(MeltMethodOptions::Bolt11 {
                         amountless: amountless_from_options,
+                        internal_melts_only: internal_melts_only_from_options,
                     }) = options
                     {
                         // If we already found a top-level amountless, use that instead
                         if amountless.is_none() {
                             amountless = Some(amountless_from_options);
                         }
+                        internal_melts_only = Some(internal_melts_only_from_options);
                     }
                 }
                 _ => {
@@ -286,9 +299,13 @@ impl<'de> Visitor<'de> for MeltMethodSettingsVisitor {
         let method = method.ok_or_else(|| de::Error::missing_field("method"))?;
         let unit = unit.ok_or_else(|| de::Error::missing_field("unit"))?;
 
-        // Create options based on the method and the amountless flag
-        let options = if method == PaymentMethod::Bolt11 && amountless.is_some() {
-            amountless.map(|amountless| MeltMethodOptions::Bolt11 { amountless })
+        let options = if method == PaymentMethod::Bolt11
+            && (amountless.is_some() || internal_melts_only.is_some())
+        {
+            Some(MeltMethodOptions::Bolt11 {
+                amountless: amountless.unwrap_or(false),
+                internal_melts_only: internal_melts_only.unwrap_or(false),
+            })
         } else {
             None
         };
@@ -321,6 +338,8 @@ pub enum MeltMethodOptions {
     Bolt11 {
         /// Mint supports paying bolt11 amountless
         amountless: bool,
+        /// Mint only allows internal settlement (no external payments)
+        internal_melts_only: bool,
     },
 }
 
@@ -407,7 +426,7 @@ mod tests {
         assert_eq!(settings.max_amount, Some(Amount::from(10000)));
 
         match settings.options {
-            Some(MeltMethodOptions::Bolt11 { amountless }) => {
+            Some(MeltMethodOptions::Bolt11 { amountless, .. }) => {
                 assert!(amountless);
             }
             _ => panic!("Expected Bolt11 options with amountless = true"),
@@ -431,7 +450,8 @@ mod tests {
             "max_amount": 10000,
             "amountless": true,
             "options": {
-                "amountless": false
+                "amountless": false,
+                "internal_melts_only": true
             }
         }"#;
 
@@ -439,7 +459,7 @@ mod tests {
         let settings: MeltMethodSettings = from_str(json_str).unwrap();
 
         match settings.options {
-            Some(MeltMethodOptions::Bolt11 { amountless }) => {
+            Some(MeltMethodOptions::Bolt11 { amountless, .. }) => {
                 assert!(amountless, "Top-level amountless should take precedence");
             }
             _ => panic!("Expected Bolt11 options with amountless = true"),

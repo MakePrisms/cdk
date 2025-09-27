@@ -54,6 +54,7 @@ async fn test_correct_keyset() {
             PaymentMethod::Bolt11,
             MintMeltLimits::new(1, 5_000),
             Arc::new(fake_wallet),
+            None,
         )
         .await
         .unwrap();

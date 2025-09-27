@@ -241,6 +241,7 @@ impl MintBuilder {
         method: PaymentMethod,
         limits: MintMeltLimits,
         payment_processor: DynMintPayment,
+        internal_melts_only: Option<bool>,
     ) -> Result<(), Error> {
         let key = PaymentProcessorKey {
             unit: unit.clone(),
@@ -277,15 +278,23 @@ impl MintBuilder {
         self.mint_info.nuts.nut04.methods.push(mint_method_settings);
         self.mint_info.nuts.nut04.disabled = false;
 
+        let options = if method == PaymentMethod::Bolt11 {
+            Some(MeltMethodOptions::Bolt11 {
+                amountless: settings.amountless,
+                internal_melts_only: internal_melts_only.unwrap_or(false),
+            })
+        } else {
+            None
+        };
+
         let melt_method_settings = MeltMethodSettings {
             method,
             unit,
             min_amount: Some(limits.melt_min),
             max_amount: Some(limits.melt_max),
-            options: Some(MeltMethodOptions::Bolt11 {
-                amountless: settings.amountless,
-            }),
+            options,
         };
+
         self.mint_info.nuts.nut05.methods.push(melt_method_settings);
         self.mint_info.nuts.nut05.disabled = false;
 
