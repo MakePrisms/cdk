@@ -1228,6 +1228,15 @@ mod tests {
         ) -> Result<Vec<String>, DatabaseError> {
             Ok(vec![])
         }
+
+        async fn kv_remove_older_than(
+            &mut self,
+            _primary_namespace: &str,
+            _secondary_namespace: &str,
+            _expiry_time: u64,
+        ) -> Result<(), DatabaseError> {
+            Ok(())
+        }
     }
 
     #[async_trait]

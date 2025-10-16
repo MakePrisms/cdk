@@ -174,7 +174,7 @@ impl Mint {
             })?;
 
         if internal_melts_only {
-            match ln.is_internal_payment(&request).await? {
+            match ln.is_internal_payment(request).await? {
                 Some(true) => {}
                 Some(false) => {
                     let mint_name = mint_info.name.unwrap_or_else(|| "this mint".to_string());

@@ -10,6 +10,10 @@ rust-version.workspace = true # MSRV
 description = "CDK fake ln backend"
 readme = "README.md"
 
+[features]
+default = ["square"]
+square = ["dep:cdk-square"]
+
 [dependencies]
 async-trait.workspace = true
 bitcoin.workspace = true
@@ -26,3 +30,5 @@ lightning.workspace = true
 tokio-stream.workspace = true
 reqwest.workspace = true
 uuid.workspace = true
+axum = { workspace = true }
+cdk-square = { workspace = true, optional = true }

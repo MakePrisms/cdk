@@ -4,7 +4,7 @@ use std::env;
 
 use cdk::nuts::CurrencyUnit;
 
-use crate::config::FakeWallet;
+use crate::config::{FakeWallet, SquareConfig};
 
 // Fake Wallet environment variables
 pub const ENV_FAKE_WALLET_SUPPORTED_UNITS: &str = "CDK_MINTD_FAKE_WALLET_SUPPORTED_UNITS";
@@ -12,6 +12,12 @@ pub const ENV_FAKE_WALLET_FEE_PERCENT: &str = "CDK_MINTD_FAKE_WALLET_FEE_PERCENT
 pub const ENV_FAKE_WALLET_RESERVE_FEE_MIN: &str = "CDK_MINTD_FAKE_WALLET_RESERVE_FEE_MIN";
 pub const ENV_FAKE_WALLET_MIN_DELAY: &str = "CDK_MINTD_FAKE_WALLET_MIN_DELAY";
 pub const ENV_FAKE_WALLET_MAX_DELAY: &str = "CDK_MINTD_FAKE_WALLET_MAX_DELAY";
+
+// Square environment variables (optional integration with Fake Wallet)
+pub const ENV_FAKE_WALLET_SQUARE_API_TOKEN: &str = "CDK_MINTD_FAKE_WALLET_SQUARE_API_TOKEN";
+pub const ENV_FAKE_WALLET_SQUARE_ENVIRONMENT: &str = "CDK_MINTD_FAKE_WALLET_SQUARE_ENVIRONMENT";
+pub const ENV_FAKE_WALLET_SQUARE_WEBHOOK_ENABLED: &str =
+    "CDK_MINTD_FAKE_WALLET_SQUARE_WEBHOOK_ENABLED";
 
 impl FakeWallet {
     pub fn from_env(mut self) -> Self {
@@ -48,6 +54,23 @@ impl FakeWallet {
             if let Ok(max_delay) = max_delay_str.parse() {
                 self.max_delay_time = max_delay;
             }
+        }
+
+        // Square integration (optional)
+        if let Ok(api_token) = env::var(ENV_FAKE_WALLET_SQUARE_API_TOKEN) {
+            let environment = env::var(ENV_FAKE_WALLET_SQUARE_ENVIRONMENT)
+                .unwrap_or_else(|_| "SANDBOX".to_string());
+
+            let webhook_enabled = env::var(ENV_FAKE_WALLET_SQUARE_WEBHOOK_ENABLED)
+                .ok()
+                .and_then(|v| v.parse::<bool>().ok())
+                .unwrap_or(true);
+
+            self.square = Some(SquareConfig {
+                api_token,
+                environment,
+                webhook_enabled,
+            });
         }
 
         self

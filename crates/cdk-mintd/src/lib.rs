@@ -484,21 +484,61 @@ async fn configure_lightning_backend(
             let fake_wallet = settings.clone().fake_wallet.expect("Fake wallet defined");
             tracing::info!("Using fake wallet: {:?}", fake_wallet);
 
-            for unit in fake_wallet.clone().supported_units {
-                let fake = fake_wallet
-                    .setup(settings, unit.clone(), None, work_dir, _kv_store.clone())
-                    .await?;
-                #[cfg(feature = "prometheus")]
-                let fake = MetricsMintPayment::new(fake);
+            #[cfg(feature = "square")]
+            let square_enabled = fake_wallet.square.is_some();
+            #[cfg(not(feature = "square"))]
+            let square_enabled = false;
 
-                mint_builder = configure_backend_for_unit(
-                    settings,
-                    mint_builder,
-                    unit.clone(),
-                    mint_melt_limits,
-                    Arc::new(fake),
-                )
-                .await?;
+            if square_enabled {
+                #[cfg(feature = "square")]
+                {
+                    let mut webhook_routers = Vec::new();
+
+                    for unit in fake_wallet.clone().supported_units {
+                        let kv_store = _kv_store.clone().ok_or_else(|| {
+                            anyhow!("KV store is required for FakeWallet with Square backend")
+                        })?;
+
+                        let (fake, square_webhook_router) = fake_wallet
+                            .setup_with_square(settings, unit.clone(), kv_store)
+                            .await?;
+
+                        if let Some(router) = square_webhook_router {
+                            webhook_routers.push(router);
+                        }
+
+                        #[cfg(feature = "prometheus")]
+                        let fake = MetricsMintPayment::new(fake);
+
+                        mint_builder = configure_backend_for_unit(
+                            settings,
+                            mint_builder,
+                            unit.clone(),
+                            mint_melt_limits,
+                            Arc::new(fake),
+                        )
+                        .await?;
+                    }
+
+                    return Ok((mint_builder, webhook_routers));
+                }
+            } else {
+                for unit in fake_wallet.clone().supported_units {
+                    let fake = fake_wallet
+                        .setup(settings, unit.clone(), None, work_dir, _kv_store.clone())
+                        .await?;
+                    #[cfg(feature = "prometheus")]
+                    let fake = MetricsMintPayment::new(fake);
+
+                    mint_builder = configure_backend_for_unit(
+                        settings,
+                        mint_builder,
+                        unit.clone(),
+                        mint_melt_limits,
+                        Arc::new(fake),
+                    )
+                    .await?;
+                }
             }
         }
         #[cfg(feature = "grpc-processor")]
@@ -561,12 +601,11 @@ async fn configure_lightning_backend(
             let mut webhook_routers = Vec::new();
 
             for unit in &strike_settings.supported_units {
-                // Create Strike backend with webhook router for this unit
                 let kv_store = _kv_store
                     .clone()
                     .ok_or_else(|| anyhow!("KV store is required for Strike backend"))?;
                 let (strike, webhook_router) = strike_settings
-                    .setup_with_webhook(settings, unit.clone(), kv_store)
+                    .setup_with_router(settings, unit.clone(), kv_store)
                     .await?;
 
                 webhook_routers.push(webhook_router);
@@ -589,18 +628,64 @@ async fn configure_lightning_backend(
         #[cfg(feature = "nwc")]
         LnBackend::Nwc => {
             let nwc_settings = settings.clone().nwc.expect("NWC config defined");
-            let nwc = nwc_settings
-                .setup(settings, CurrencyUnit::Sat, None, work_dir, None)
-                .await?;
 
-            mint_builder = configure_backend_for_unit(
-                settings,
-                mint_builder,
-                CurrencyUnit::Sat,
-                mint_melt_limits,
-                Arc::new(nwc),
-            )
-            .await?;
+            #[cfg(feature = "square")]
+            let square_enabled = nwc_settings.square.is_some();
+            #[cfg(not(feature = "square"))]
+            let square_enabled = false;
+
+            if square_enabled {
+                #[cfg(feature = "square")]
+                {
+                    let mut webhook_routers = Vec::new();
+                    let kv_store = _kv_store.clone().ok_or_else(|| {
+                        anyhow!("KV store is required for NWC with Square backend")
+                    })?;
+                    let (nwc, square_webhook_router) = nwc_settings
+                        .setup_with_square(settings, CurrencyUnit::Sat, kv_store)
+                        .await?;
+
+                    if let Some(router) = square_webhook_router {
+                        webhook_routers.push(router);
+                    }
+
+                    #[cfg(feature = "prometheus")]
+                    let nwc = MetricsMintPayment::new(nwc);
+
+                    mint_builder = configure_backend_for_unit(
+                        settings,
+                        mint_builder,
+                        CurrencyUnit::Sat,
+                        mint_melt_limits,
+                        Arc::new(nwc),
+                    )
+                    .await?;
+
+                    return Ok((mint_builder, webhook_routers));
+                }
+            } else {
+                let nwc = nwc_settings
+                    .setup(
+                        settings,
+                        CurrencyUnit::Sat,
+                        None,
+                        work_dir,
+                        _kv_store.clone(),
+                    )
+                    .await?;
+
+                #[cfg(feature = "prometheus")]
+                let nwc = MetricsMintPayment::new(nwc);
+
+                mint_builder = configure_backend_for_unit(
+                    settings,
+                    mint_builder,
+                    CurrencyUnit::Sat,
+                    mint_melt_limits,
+                    Arc::new(nwc),
+                )
+                .await?;
+            }
         }
         LnBackend::None => {
             tracing::error!(

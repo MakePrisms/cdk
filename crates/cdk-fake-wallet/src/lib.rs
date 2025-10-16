@@ -21,10 +21,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
+#[cfg(feature = "square")]
+use axum::Router;
 use bitcoin::hashes::{sha256, Hash};
 use bitcoin::secp256k1::{Secp256k1, SecretKey};
 use cdk_common::amount::{to_unit, Amount};
 use cdk_common::common::FeeReserve;
+#[cfg(feature = "square")]
+use cdk_common::database::mint::DynMintKVStore;
 use cdk_common::ensure_cdk;
 use cdk_common::nuts::{CurrencyUnit, MeltOptions, MeltQuoteState};
 use cdk_common::payment::{
@@ -47,6 +51,10 @@ use tracing::instrument;
 use uuid::Uuid;
 
 pub mod error;
+
+// Re-export Square types for convenience
+#[cfg(feature = "square")]
+pub use cdk_square::{Square, SquareConfig};
 
 /// Default maximum size for the secondary repayment queue
 const DEFAULT_REPAY_QUEUE_MAX_SIZE: usize = 100;
@@ -336,6 +344,9 @@ pub struct FakeWallet {
     unit: CurrencyUnit,
     secondary_repayment_queue: SecondaryRepaymentQueue,
     exchange_rate_cache: ExchangeRateCache,
+    /// Optional Square payment backend
+    #[cfg(feature = "square")]
+    square: Option<Arc<cdk_square::Square>>,
 }
 
 impl FakeWallet {
@@ -355,6 +366,60 @@ impl FakeWallet {
             unit,
             DEFAULT_REPAY_QUEUE_MAX_SIZE,
         )
+    }
+
+    /// Create new [`FakeWallet`] with Square integration
+    #[cfg(feature = "square")]
+    #[allow(clippy::too_many_arguments)]
+    pub async fn new_with_square(
+        fee_reserve: FeeReserve,
+        payment_states: HashMap<String, MeltQuoteState>,
+        fail_payment_check: HashSet<String>,
+        payment_delay: u64,
+        unit: CurrencyUnit,
+        kv_store: DynMintKVStore,
+        square_config: Option<cdk_square::SquareConfig>,
+        square_webhook_url: Option<String>,
+    ) -> Result<Self, error::Error> {
+        let (sender, receiver) = tokio::sync::mpsc::channel(8);
+        let incoming_payments = Arc::new(RwLock::new(HashMap::new()));
+
+        let secondary_repayment_queue = SecondaryRepaymentQueue::new(
+            DEFAULT_REPAY_QUEUE_MAX_SIZE,
+            sender.clone(),
+            unit.clone(),
+        );
+
+        let square = match square_config {
+            Some(config) => {
+                match cdk_square::Square::from_config(config, square_webhook_url, kv_store.clone())
+                {
+                    Ok(square_backend) => {
+                        let square_arc = Arc::new(square_backend);
+                        square_arc.start().await?;
+                        Some(square_arc)
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+            }
+            None => None,
+        };
+
+        Ok(Self {
+            fee_reserve,
+            sender,
+            receiver: Arc::new(Mutex::new(Some(receiver))),
+            payment_states: Arc::new(Mutex::new(payment_states)),
+            failed_payment_check: Arc::new(Mutex::new(fail_payment_check)),
+            payment_delay,
+            wait_invoice_cancel_token: CancellationToken::new(),
+            wait_invoice_is_active: Arc::new(AtomicBool::new(false)),
+            incoming_payments,
+            unit,
+            secondary_repayment_queue,
+            exchange_rate_cache: ExchangeRateCache::new(),
+            square,
+        })
     }
 
     /// Create new [`FakeWallet`] with custom secondary repayment queue size
@@ -385,7 +450,21 @@ impl FakeWallet {
             unit,
             secondary_repayment_queue,
             exchange_rate_cache: ExchangeRateCache::new(),
+            #[cfg(feature = "square")]
+            square: None,
         }
+    }
+
+    /// Create Square webhook router for payment notifications
+    ///
+    /// # Returns
+    /// * `Some(Router)` if Square backend is configured with a webhook URL
+    /// * `None` if Square backend is not configured or is using polling mode
+    #[cfg(feature = "square")]
+    pub fn create_square_webhook_router(&self) -> Option<Router> {
+        self.square
+            .as_ref()
+            .and_then(|square| square.create_webhook_router())
     }
 }
 
@@ -426,6 +505,35 @@ impl MintPayment for FakeWallet {
             amountless: false,
             bolt12: true,
         })?)
+    }
+
+    #[instrument(skip_all)]
+    async fn is_internal_payment(
+        &self,
+        request: &Bolt11Invoice,
+    ) -> Result<Option<bool>, Self::Err> {
+        #[cfg(feature = "square")]
+        {
+            let Some(square) = self.square.as_ref() else {
+                return Ok(None);
+            };
+
+            // Check if this invoice exists in our Square tracking
+            square
+                .check_invoice_exists(request)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Error checking Square invoice: {}", e);
+                    cdk_common::payment::Error::Custom(format!("Square error: {}", e))
+                })
+                .map(Some)
+        }
+
+        #[cfg(not(feature = "square"))]
+        {
+            let _ = request; // Avoid unused variable warning
+            Ok(None)
+        }
     }
 
     #[instrument(skip_all)]
