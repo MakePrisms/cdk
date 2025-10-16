@@ -32,6 +32,11 @@ pub enum Error {
     /// Connection error
     #[error("Connection error: {0}")]
     Connection(String),
+
+    /// Square error
+    #[cfg(feature = "square")]
+    #[error(transparent)]
+    Square(#[from] cdk_square::error::Error),
 }
 
 impl From<Error> for cdk_common::payment::Error {
@@ -58,6 +63,8 @@ impl From<Error> for cdk_common::payment::Error {
             Error::Connection(msg) => {
                 cdk_common::payment::Error::Custom(format!("Connection error: {}", msg))
             }
+            #[cfg(feature = "square")]
+            Error::Square(e) => cdk_common::payment::Error::Custom(format!("Square error: {}", e)),
         }
     }
 }

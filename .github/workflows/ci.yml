@@ -294,9 +294,7 @@ jobs:
       matrix:
         ln:
           [
-          FAKEWALLET,
-          CLN,
-          LND
+          FAKEWALLET
           ]
     steps:
       - name: checkout

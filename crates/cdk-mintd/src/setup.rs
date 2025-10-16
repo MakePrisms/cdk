@@ -9,7 +9,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use async_trait::async_trait;
 #[cfg(feature = "fakewallet")]
-use bip39::rand::{thread_rng, Rng};
+use bip39::rand::{rngs::OsRng, Rng};
 use cdk::cdk_database::MintKVStore;
 use cdk::cdk_payment::MintPayment;
 use cdk::nuts::CurrencyUnit;
@@ -140,6 +140,59 @@ impl LnBackendSetup for config::Lnd {
     }
 }
 
+#[cfg(all(feature = "fakewallet", feature = "square"))]
+impl config::FakeWallet {
+    pub async fn setup_with_square(
+        &self,
+        settings: &Settings,
+        unit: CurrencyUnit,
+        kv_store: cdk_common::database::mint::DynMintKVStore,
+    ) -> anyhow::Result<(cdk_fake_wallet::FakeWallet, Option<axum::Router>)> {
+        use cdk::mint_url::MintUrl;
+
+        let fee_reserve = FeeReserve {
+            min_fee_reserve: self.reserve_fee_min,
+            percent_fee_reserve: self.fee_percent,
+        };
+
+        let mut rng = OsRng;
+        let delay_time = rng.gen_range(self.min_delay_time..=self.max_delay_time);
+
+        let (square_config, square_webhook_url) = if let Some(ref square_cfg) = self.square {
+            let webhook_endpoint = format!("/webhook/square/{}/payment", unit);
+            let mint_url: MintUrl = settings.info.url.parse()?;
+            let webhook_url = mint_url.join(&webhook_endpoint)?;
+
+            let square_config = cdk_square::SquareConfig {
+                api_token: square_cfg.api_token.clone(),
+                environment: square_cfg.environment.clone(),
+                webhook_enabled: square_cfg.webhook_enabled,
+                payment_expiry: cdk_square::DEFAULT_SQUARE_PAYMENT_EXPIRY,
+            };
+
+            (Some(square_config), Some(webhook_url.to_string()))
+        } else {
+            (None, None)
+        };
+
+        let fake_wallet = cdk_fake_wallet::FakeWallet::new_with_square(
+            fee_reserve,
+            HashMap::default(),
+            HashSet::default(),
+            delay_time,
+            unit.clone(),
+            kv_store,
+            square_config,
+            square_webhook_url,
+        )
+        .await?;
+
+        let square_webhook_router = fake_wallet.create_square_webhook_router();
+
+        Ok((fake_wallet, square_webhook_router))
+    }
+}
+
 #[cfg(feature = "fakewallet")]
 #[async_trait]
 impl LnBackendSetup for config::FakeWallet {
@@ -156,19 +209,16 @@ impl LnBackendSetup for config::FakeWallet {
             percent_fee_reserve: self.fee_percent,
         };
 
-        // calculate random delay time
-        let mut rng = thread_rng();
+        let mut rng = OsRng;
         let delay_time = rng.gen_range(self.min_delay_time..=self.max_delay_time);
 
-        let fake_wallet = cdk_fake_wallet::FakeWallet::new(
+        Ok(cdk_fake_wallet::FakeWallet::new(
             fee_reserve,
             HashMap::default(),
             HashSet::default(),
             delay_time,
             unit,
-        );
-
-        Ok(fake_wallet)
+        ))
     }
 }
 
@@ -330,28 +380,10 @@ impl LnBackendSetup for config::LdkNode {
 }
 
 #[cfg(feature = "strike")]
-#[async_trait]
-impl LnBackendSetup for config::Strike {
-    async fn setup(
-        &self,
-        _settings: &Settings,
-        _unit: CurrencyUnit,
-        _runtime: Option<std::sync::Arc<tokio::runtime::Runtime>>,
-        _work_dir: &Path,
-        _kv_store: Option<Arc<dyn MintKVStore<Err = cdk::cdk_database::Error> + Send + Sync>>,
-    ) -> anyhow::Result<cdk_strike::Strike> {
-        anyhow::bail!(
-            "Strike backend cannot use the standard setup() method due to webhook routing requirements. \
-             Use setup_with_webhook() instead, or configure Strike through the mint builder."
-        )
-    }
-}
-
-#[cfg(feature = "strike")]
 impl config::Strike {
-    /// Special setup for Strike that includes webhook router
-    /// This is necessary because Strike requires webhook endpoints on the same server
-    pub async fn setup_with_webhook(
+    /// Setup Strike backend with webhook router
+    /// Strike requires webhook endpoints for invoice notifications
+    pub async fn setup_with_router(
         &self,
         settings: &Settings,
         unit: CurrencyUnit,
@@ -377,6 +409,80 @@ impl config::Strike {
     }
 }
 
+#[cfg(feature = "strike")]
+#[async_trait]
+impl LnBackendSetup for config::Strike {
+    async fn setup(
+        &self,
+        _settings: &Settings,
+        _unit: CurrencyUnit,
+        _runtime: Option<std::sync::Arc<tokio::runtime::Runtime>>,
+        _work_dir: &Path,
+        _kv_store: Option<Arc<dyn MintKVStore<Err = cdk::cdk_database::Error> + Send + Sync>>,
+    ) -> anyhow::Result<cdk_strike::Strike> {
+        anyhow::bail!("Strike backend requires webhook routing. Use setup_with_router() instead.")
+    }
+}
+
+#[cfg(all(feature = "nwc", feature = "square"))]
+impl config::Nwc {
+    /// Special setup for NWC with Square integration
+    pub async fn setup_with_square(
+        &self,
+        settings: &Settings,
+        unit: CurrencyUnit,
+        kv_store: cdk_common::database::mint::DynMintKVStore,
+    ) -> anyhow::Result<(cdk_nwc::NWCWallet, Option<axum::Router>)> {
+        use cdk::mint_url::MintUrl;
+
+        let fee_reserve = FeeReserve {
+            min_fee_reserve: self.reserve_fee_min,
+            percent_fee_reserve: self.fee_percent,
+        };
+
+        let (square_config, square_webhook_url) = if let Some(ref square_cfg) = self.square {
+            let webhook_endpoint = format!("/webhook/square/{}/payment", unit);
+            let mint_url: MintUrl = settings.info.url.parse()?;
+            let webhook_url = mint_url.join(&webhook_endpoint)?;
+
+            let square_config = cdk_square::SquareConfig {
+                api_token: square_cfg.api_token.clone(),
+                environment: square_cfg.environment.clone(),
+                webhook_enabled: square_cfg.webhook_enabled,
+                payment_expiry: cdk_square::DEFAULT_SQUARE_PAYMENT_EXPIRY,
+            };
+
+            (Some(square_config), Some(webhook_url.to_string()))
+        } else {
+            (None, None)
+        };
+
+        let internal_melts_only = if square_config.is_some() {
+            // TODO: handle this better. Right now the mint will be configured with internal melts only,
+            // but because we are using Square to determine if the payment is internal, we need to set this to false
+            // so that the mint will still be able to pay external invoices, but only those tracked by Square.
+            false
+        } else {
+            settings.ln.internal_melts_only
+        };
+
+        let nwc = cdk_nwc::NWCWallet::new(
+            &self.nwc_uri,
+            fee_reserve,
+            unit.clone(),
+            internal_melts_only,
+            kv_store,
+            square_config,
+            square_webhook_url,
+        )
+        .await?;
+
+        let square_webhook_router = nwc.create_square_webhook_router();
+
+        Ok((nwc, square_webhook_router))
+    }
+}
+
 #[cfg(feature = "nwc")]
 #[async_trait]
 impl LnBackendSetup for config::Nwc {
@@ -386,17 +492,25 @@ impl LnBackendSetup for config::Nwc {
         unit: CurrencyUnit,
         _runtime: Option<std::sync::Arc<tokio::runtime::Runtime>>,
         _work_dir: &Path,
-        _kv_store: Option<Arc<dyn MintKVStore<Err = cdk::cdk_database::Error> + Send + Sync>>,
+        kv_store: Option<Arc<dyn MintKVStore<Err = cdk::cdk_database::Error> + Send + Sync>>,
     ) -> anyhow::Result<cdk_nwc::NWCWallet> {
         let fee_reserve = FeeReserve {
             min_fee_reserve: self.reserve_fee_min,
             percent_fee_reserve: self.fee_percent,
         };
 
-        let internal_melts_only = settings.ln.internal_melts_only;
+        let kv_store_arc =
+            kv_store.ok_or_else(|| anyhow::anyhow!("KV store is required for NWC backend"))?;
 
-        let nwc =
-            cdk_nwc::NWCWallet::new(&self.nwc_uri, fee_reserve, unit, internal_melts_only).await?;
-        Ok(nwc)
+        Ok(cdk_nwc::NWCWallet::new(
+            &self.nwc_uri,
+            fee_reserve,
+            unit,
+            settings.ln.internal_melts_only,
+            kv_store_arc,
+            None,
+            None,
+        )
+        .await?)
     }
 }

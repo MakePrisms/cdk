@@ -159,10 +159,22 @@ reserve_fee_min = 1
 min_delay_time = 1
 max_delay_time = 3
 
+# Optional Square integration for fake wallet (for testing Square merchants)
+# [fake_wallet.square]
+# api_token = "your_square_api_token_here"
+# environment = "SANDBOX"  # or "PRODUCTION"
+# webhook_enabled = true  # If false, uses polling mode (syncs every 5 seconds) instead of webhooks
+
 # [nwc]
 # nwc_uri = "nostr+walletconnect://..."
 # fee_percent = 0.02
 # reserve_fee_min = 1
+# 
+# # Optional Square integration for NWC backend
+# [nwc.square]
+# api_token = "your_square_api_token_here"
+# environment = "SANDBOX"  # or "PRODUCTION"
+# webhook_enabled = true  # If false, uses polling mode (syncs every 5 seconds) instead of webhooks
 
 # [grpc_processor]
 # gRPC Payment Processor configuration

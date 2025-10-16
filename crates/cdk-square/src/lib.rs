@@ -1,0 +1,62 @@
+//! CDK Square payment backend integration
+//!
+//! This crate provides Square Lightning payment tracking and webhook handling
+//! for internal payment detection in payment processor backends.
+//!
+//! # Features
+//!
+//! - **Webhook Mode**: Real-time payment notifications with signature verification
+//! - **Polling Mode**: Automatic fallback to polling every 5 seconds
+//! - **KV Store Integration**: Persistent storage of payment data
+//! - **Payment Hash Tracking**: Maps Lightning payment hashes to Square payment IDs
+//!
+//! # Usage
+//!
+//! ```rust,no_run
+//! use cdk_square::{Square, SquareConfig};
+//!
+//! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! # let kv_store = todo!();
+//! let config = SquareConfig {
+//!     api_token: "your-api-token".to_string(),
+//!     environment: "SANDBOX".to_string(),
+//!     webhook_enabled: true,
+//!     payment_expiry: 300, // 5 minutes
+//! };
+//!
+//! let square = Square::from_config(
+//!     Some(config),
+//!     Some("https://your-mint.com/webhook".to_string()),
+//!     kv_store,
+//! )
+//! .await?;
+//!
+//! if let Some(square) = square {
+//!     square.start().await?;
+//! }
+//! # Ok(())
+//! # }
+//! ```
+
+#![warn(missing_docs)]
+#![warn(rustdoc::bare_urls)]
+
+pub mod client;
+pub mod config;
+pub mod error;
+pub mod sync;
+pub mod types;
+pub mod util;
+pub mod webhook;
+
+// Re-export main types
+pub use client::Square;
+pub use config::SquareConfig;
+pub use error::Error;
+pub use types::{
+    LightningDetails, ListMerchantsResponse, ListPaymentsParams, ListPaymentsResponse, Merchant,
+    Money, Payment, PaymentBrand, WalletDetails,
+};
+
+/// Default payment expiry time in seconds
+pub const DEFAULT_SQUARE_PAYMENT_EXPIRY: u64 = 500;

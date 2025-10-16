@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use bitcoin::bip32::DerivationPath;
-use cdk_common::database::mint::validate_kvstore_params;
+use cdk_common::database::mint::{validate_kvstore_params, validate_kvstore_string};
 use cdk_common::database::{
     self, ConversionError, Error, MintDatabase, MintDbWriterFinalizer, MintKeyDatabaseTransaction,
     MintKeysDatabase, MintProofsDatabase, MintQuotesDatabase, MintQuotesTransaction,
@@ -1892,6 +1892,35 @@ where
         .into_iter()
         .map(|row| Ok(column_as_string!(&row[0])))
         .collect::<Result<Vec<_>, Error>>()?)
+    }
+
+    async fn kv_remove_older_than(
+        &mut self,
+        primary_namespace: &str,
+        secondary_namespace: &str,
+        expiry_time: u64,
+    ) -> Result<(), Error> {
+        validate_kvstore_string(primary_namespace)?;
+        validate_kvstore_string(secondary_namespace)?;
+
+        let current_time = unix_time();
+        let cutoff_time = current_time.saturating_sub(expiry_time);
+
+        query(
+            r#"
+            DELETE FROM kv_store
+            WHERE primary_namespace = :primary_namespace
+            AND secondary_namespace = :secondary_namespace
+            AND updated_time < :cutoff_time
+            "#,
+        )?
+        .bind("primary_namespace", primary_namespace.to_owned())
+        .bind("secondary_namespace", secondary_namespace.to_owned())
+        .bind("cutoff_time", cutoff_time as i64)
+        .execute(&self.inner)
+        .await?;
+
+        Ok(())
     }
 }
 

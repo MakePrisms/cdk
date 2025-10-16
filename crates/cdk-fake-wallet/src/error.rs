@@ -14,6 +14,10 @@ pub enum Error {
     /// Unknown invoice
     #[error("No channel receiver")]
     NoReceiver,
+    /// Square error
+    #[cfg(feature = "square")]
+    #[error(transparent)]
+    Square(#[from] cdk_square::error::Error),
 }
 
 impl From<Error> for cdk_common::payment::Error {
