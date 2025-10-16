@@ -27,4 +27,5 @@ axum.workspace = true
 squareup = "2.13.2"
 reqwest = { workspace = true }
 bitcoin = { workspace = true }
+rustls = { workspace = true }
 

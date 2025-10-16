@@ -1,5 +1,6 @@
 //! Square API client wrapper and core functionality
 
+use std::error::Error as StdError;
 use std::sync::Arc;
 
 use cdk_common::database::mint::DynMintKVStore;
@@ -48,6 +49,13 @@ impl Square {
         webhook_url: Option<String>,
         kv_store: DynMintKVStore,
     ) -> Result<Self, Error> {
+        // Square requires TLS for HTTPS requests
+        // Install rustls crypto provider if not already set
+        if rustls::crypto::CryptoProvider::get_default().is_none() {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+            tracing::debug!("Installed rustls crypto provider for Square");
+        }
+
         let environment = match square_config.environment.to_uppercase().as_str() {
             "PRODUCTION" => SquareEnvironment::Production,
             _ => SquareEnvironment::Sandbox,
@@ -245,7 +253,27 @@ impl Square {
         let base_url = self.get_base_url();
 
         let url = format!("{}/v2/payments", base_url);
-        let client = reqwest::Client::new();
+
+        tracing::debug!(
+            "Listing Square payments - URL: {}, Environment: {:?}, begin_time: {:?}",
+            url,
+            self.environment,
+            params.begin_time
+        );
+
+        let client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("Failed to build reqwest client for payments: {:?}", e);
+                return Err(Error::SquareHttp(format!(
+                    "Failed to build HTTP client: {}. This may indicate TLS backend issues.",
+                    e
+                )));
+            }
+        };
 
         let mut request = client
             .get(&url)
@@ -261,10 +289,76 @@ impl Square {
             request = request.query(&[("cursor", cursor.as_str())]);
         }
 
+        tracing::debug!("Sending GET request to {}", url);
         let response = request
             .send()
             .await
-            .map_err(|e| Error::SquareHttp(format!("Failed to list payments: {}", e)))?;
+            .map_err(|e| {
+                // Provide detailed error diagnostics
+                let mut error_details = format!("Failed to send request to {}", url);
+                let mut hints = Vec::new();
+
+                if e.is_timeout() {
+                    error_details.push_str(" - Timeout after 30s");
+                    hints.push("Increase timeout or check network latency");
+                } else if e.is_connect() {
+                    error_details.push_str(" - Connection failed");
+                    hints.push("Check firewall rules, network connectivity, or proxy settings");
+                } else if e.is_request() {
+                    error_details.push_str(" - Request building failed");
+                    hints.push("This is likely a bug in the request construction");
+                } else if e.is_redirect() {
+                    error_details.push_str(" - Too many redirects");
+                } else if e.is_builder() {
+                    error_details.push_str(" - Client builder error");
+                    hints.push("TLS backend configuration issue");
+                }
+
+                // Include underlying error chain
+                if let Some(source) = e.source() {
+                    error_details.push_str(&format!(" | Root cause: {}", source));
+
+                    // Check for specific error types
+                    let source_str = source.to_string().to_lowercase();
+                    if source_str.contains("certificate") || source_str.contains("tls") || source_str.contains("ssl") {
+                        hints.push("TLS/SSL issue - check root certificates or try native-tls feature");
+                    } else if source_str.contains("dns") || source_str.contains("resolve") {
+                        hints.push("DNS resolution failed");
+                    } else if source_str.contains("tcp") || source_str.contains("connection refused") {
+                        hints.push("TCP connection refused - check if port 443 is accessible");
+                    } else if source_str.contains("crypto") || source_str.contains("provider") {
+                        hints.push("Crypto provider error - rustls crypto provider may have failed to initialize");
+                    }
+
+                    // Walk the full error chain
+                    let mut current_source = source.source();
+                    let mut depth = 0;
+                    while let Some(src) = current_source {
+                        depth += 1;
+                        if depth < 3 {  // Limit depth to avoid spam
+                            error_details.push_str(&format!(" -> {}", src));
+                        }
+                        current_source = src.source();
+                    }
+                }
+
+                let hints_str = if !hints.is_empty() {
+                    format!(" | Hints: {}", hints.join("; "))
+                } else {
+                    String::new()
+                };
+
+                tracing::error!(
+                    "Square API request failed: {}{}",
+                    error_details,
+                    hints_str
+                );
+                tracing::error!("Full error debug: {:?}", e);
+
+                Error::SquareHttp(format!("{}{}", error_details, hints_str))
+            })?;
+
+        tracing::debug!("Received response with status: {}", response.status());
 
         if !response.status().is_success() {
             let error_body = response
@@ -304,8 +398,56 @@ impl Square {
         let base_url = self.get_base_url();
 
         let url = format!("{}/v2/merchants", base_url);
-        let client = reqwest::Client::new();
 
+        tracing::info!(
+            "Listing Square merchants - URL: {}, Environment: {:?}",
+            url,
+            self.environment
+        );
+
+        // Test DNS resolution before making the request
+        let host = match self.environment {
+            SquareEnvironment::Production => "connect.squareup.com",
+            SquareEnvironment::Sandbox => "connect.squareupsandbox.com",
+        };
+
+        tracing::debug!("Testing DNS resolution for {}", host);
+        match tokio::net::lookup_host(format!("{}:443", host)).await {
+            Ok(mut addrs) => {
+                if let Some(addr) = addrs.next() {
+                    tracing::info!("DNS resolution successful: {} -> {}", host, addr);
+                } else {
+                    tracing::error!("DNS resolution returned no addresses for {}", host);
+                }
+            }
+            Err(e) => {
+                tracing::error!("DNS resolution failed for {}: {}", host, e);
+                return Err(Error::SquareHttp(format!(
+                    "DNS resolution failed for {}: {}. Check network connectivity and DNS configuration.",
+                    host, e
+                )));
+            }
+        }
+
+        tracing::debug!("Building reqwest client");
+        let client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+        {
+            Ok(c) => {
+                tracing::debug!("reqwest client built successfully");
+                c
+            }
+            Err(e) => {
+                tracing::error!("Failed to build reqwest client: {:?}", e);
+                return Err(Error::SquareHttp(format!(
+                    "Failed to build HTTP client: {}. This may indicate TLS backend issues.",
+                    e
+                )));
+            }
+        };
+
+        tracing::debug!("Sending GET request to {}", url);
         let response = client
             .get(&url)
             .header("Authorization", format!("Bearer {}", self.api_token))
@@ -313,7 +455,72 @@ impl Square {
             .header("Content-Type", "application/json")
             .send()
             .await
-            .map_err(|e| Error::SquareHttp(format!("Failed to list merchants: {}", e)))?;
+            .map_err(|e| {
+                // Provide detailed error diagnostics
+                let mut error_details = format!("Failed to send request to {}", url);
+                let mut hints = Vec::new();
+
+                if e.is_timeout() {
+                    error_details.push_str(" - Timeout after 30s");
+                    hints.push("Increase timeout or check network latency");
+                } else if e.is_connect() {
+                    error_details.push_str(" - Connection failed");
+                    hints.push("Check firewall rules, network connectivity, or proxy settings");
+                } else if e.is_request() {
+                    error_details.push_str(" - Request building failed");
+                    hints.push("This is likely a bug in the request construction");
+                } else if e.is_redirect() {
+                    error_details.push_str(" - Too many redirects");
+                } else if e.is_builder() {
+                    error_details.push_str(" - Client builder error");
+                    hints.push("TLS backend configuration issue");
+                }
+
+                // Include underlying error chain
+                if let Some(source) = e.source() {
+                    error_details.push_str(&format!(" | Root cause: {}", source));
+
+                    // Check for specific error types
+                    let source_str = source.to_string().to_lowercase();
+                    if source_str.contains("certificate") || source_str.contains("tls") || source_str.contains("ssl") {
+                        hints.push("TLS/SSL issue - check root certificates or try native-tls feature");
+                    } else if source_str.contains("dns") || source_str.contains("resolve") {
+                        hints.push("DNS resolution failed after initial check - possible race condition");
+                    } else if source_str.contains("tcp") || source_str.contains("connection refused") {
+                        hints.push("TCP connection refused - check if port 443 is accessible");
+                    } else if source_str.contains("crypto") || source_str.contains("provider") {
+                        hints.push("Crypto provider error - rustls crypto provider may have failed to initialize");
+                    }
+
+                    // Walk the full error chain
+                    let mut current_source = source.source();
+                    let mut depth = 0;
+                    while let Some(src) = current_source {
+                        depth += 1;
+                        if depth < 3 {  // Limit depth to avoid spam
+                            error_details.push_str(&format!(" -> {}", src));
+                        }
+                        current_source = src.source();
+                    }
+                }
+
+                let hints_str = if !hints.is_empty() {
+                    format!(" | Hints: {}", hints.join("; "))
+                } else {
+                    String::new()
+                };
+
+                tracing::error!(
+                    "Square API request failed: {}{}",
+                    error_details,
+                    hints_str
+                );
+                tracing::error!("Full error debug: {:?}", e);
+
+                Error::SquareHttp(format!("{}{}", error_details, hints_str))
+            })?;
+
+        tracing::debug!("Received response with status: {}", response.status());
 
         if !response.status().is_success() {
             let error_body = response
