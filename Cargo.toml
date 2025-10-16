@@ -114,6 +114,8 @@ strum_macros = "0.27.1"
 rustls = { version = "0.23.27", default-features = false, features = ["ring"] }
 prometheus = { version = "0.13.4", features = ["process"], default-features = false }
 
+cdk-square = { path = "./crates/cdk-square", version = "=0.13.0" }
+
 
 
 
