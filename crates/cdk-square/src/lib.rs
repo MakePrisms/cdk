@@ -58,5 +58,5 @@ pub use types::{
     Money, Payment, PaymentBrand, WalletDetails,
 };
 
-/// Default payment expiry time in seconds (5 minutes)
-pub const DEFAULT_SQUARE_PAYMENT_EXPIRY: u64 = 300;
+/// Default payment expiry time in seconds
+pub const DEFAULT_SQUARE_PAYMENT_EXPIRY: u64 = 500;

@@ -13,6 +13,60 @@ pub const SIGNATURE_KEY_STORAGE_KEY: &str = "signature_key";
 /// Key for storing last payment sync timestamp
 pub const LAST_SYNC_TIME_KEY: &str = "last_sync_time";
 
+/// Convert RFC 3339 format to unix timestamp (seconds)
+///
+/// Returns None if the string is not a valid RFC 3339 timestamp
+pub fn rfc3339_to_unix(rfc3339: &str) -> Option<u64> {
+    // Expected format: YYYY-MM-DDTHH:MM:SSZ
+    let parts: Vec<&str> = rfc3339.split('T').collect();
+    if parts.len() != 2 {
+        return None;
+    }
+
+    let date_parts: Vec<&str> = parts[0].split('-').collect();
+    if date_parts.len() != 3 {
+        return None;
+    }
+
+    let year: u64 = date_parts[0].parse().ok()?;
+    let month: u64 = date_parts[1].parse().ok()?;
+    let day: u64 = date_parts[2].parse().ok()?;
+
+    let time_str = parts[1].trim_end_matches('Z');
+    let time_parts: Vec<&str> = time_str.split(':').collect();
+    if time_parts.len() != 3 {
+        return None;
+    }
+
+    let hours: u64 = time_parts[0].parse().ok()?;
+    let minutes: u64 = time_parts[1].parse().ok()?;
+    let seconds: u64 = time_parts[2].parse().ok()?;
+
+    // Calculate days since Unix epoch
+    let mut days = 0u64;
+    for y in 1970..year {
+        days += if is_leap_year(y) { 366 } else { 365 };
+    }
+
+    let days_in_months = if is_leap_year(year) {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    for &days_in_month in days_in_months.iter().take((month - 1) as usize) {
+        days += days_in_month as u64;
+    }
+
+    days += day - 1; // day is 1-indexed
+
+    const SECONDS_PER_DAY: u64 = 86400;
+    const SECONDS_PER_HOUR: u64 = 3600;
+    const SECONDS_PER_MINUTE: u64 = 60;
+
+    Some(days * SECONDS_PER_DAY + hours * SECONDS_PER_HOUR + minutes * SECONDS_PER_MINUTE + seconds)
+}
+
 /// Convert unix timestamp (seconds) to RFC 3339 format
 ///
 /// Returns a string in the format: YYYY-MM-DDTHH:MM:SSZ
@@ -95,5 +149,32 @@ mod tests {
         // Test with time components
         // 2024-06-15 14:40:45 UTC = 1718462445
         assert_eq!(unix_to_rfc3339(1718462445), "2024-06-15T14:40:45Z");
+    }
+
+    #[test]
+    fn test_rfc3339_to_unix() {
+        // Test epoch
+        assert_eq!(rfc3339_to_unix("1970-01-01T00:00:00Z"), Some(0));
+
+        // Test specific known dates
+        assert_eq!(rfc3339_to_unix("2024-01-01T00:00:00Z"), Some(1704067200));
+
+        // Test with time components
+        assert_eq!(rfc3339_to_unix("2024-06-15T14:40:45Z"), Some(1718462445));
+
+        // Test invalid formats
+        assert_eq!(rfc3339_to_unix("invalid"), None);
+        assert_eq!(rfc3339_to_unix("2024-01-01"), None);
+    }
+
+    #[test]
+    fn test_rfc3339_roundtrip() {
+        // Test roundtrip conversion
+        let timestamps = vec![0, 1704067200, 1718462445];
+        for ts in timestamps {
+            let rfc = unix_to_rfc3339(ts);
+            let back = rfc3339_to_unix(&rfc);
+            assert_eq!(back, Some(ts), "Roundtrip failed for timestamp {}", ts);
+        }
     }
 }

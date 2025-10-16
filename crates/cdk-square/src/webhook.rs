@@ -212,8 +212,7 @@ impl crate::client::Square {
             bitcoin::base64::engine::general_purpose::STANDARD.encode(hmac_result.to_byte_array());
 
         // Constant-time comparison to prevent timing attacks
-        let signatures_match = expected_signature.as_bytes().len()
-            == signature_header.as_bytes().len()
+        let signatures_match = expected_signature.len() == signature_header.len()
             && expected_signature
                 .as_bytes()
                 .iter()

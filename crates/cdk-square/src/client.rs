@@ -50,7 +50,7 @@ impl Square {
     ) -> Result<Self, Error> {
         let environment = match square_config.environment.to_uppercase().as_str() {
             "PRODUCTION" => SquareEnvironment::Production,
-            "SANDBOX" | _ => SquareEnvironment::Sandbox,
+            _ => SquareEnvironment::Sandbox,
         };
 
         let webhook_enabled = square_config.webhook_enabled;
@@ -246,14 +246,6 @@ impl Square {
 
         let url = format!("{}/v2/payments", base_url);
         let client = reqwest::Client::new();
-
-        tracing::debug!(
-            "Listing Square payments (begin_time: {:?}, cursor: {:?}, limit: {}, brand: {:?})",
-            params.begin_time,
-            params.cursor,
-            params.limit,
-            params.brand
-        );
 
         let mut request = client
             .get(&url)
