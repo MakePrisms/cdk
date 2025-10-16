@@ -270,6 +270,19 @@ pub trait MintPayment {
         Ok(())
     }
 
+    /// Check if a payment is internal to this payment processor
+    /// Used for internal settlement validation
+    /// Returns:
+    /// - `Ok(Some(true))` if payment is internal
+    /// - `Ok(Some(false))` if payment is definitely not internal
+    /// - `Ok(None)` if processor doesn't implement this check
+    async fn is_internal_payment(
+        &self,
+        _request: &Bolt11Invoice,
+    ) -> Result<Option<bool>, Self::Err> {
+        Ok(None)
+    }
+
     /// Base Settings
     async fn get_settings(&self) -> Result<serde_json::Value, Self::Err>;
 
@@ -608,6 +621,22 @@ where
 
         METRICS.record_mint_operation_histogram("check_outgoing_payment", success, duration);
         METRICS.dec_in_flight_requests("check_outgoing_payment");
+
+        result
+    }
+
+    async fn is_internal_payment(
+        &self,
+        request: &Bolt11Invoice,
+    ) -> Result<Option<bool>, Self::Err> {
+        let start = std::time::Instant::now();
+        METRICS.inc_in_flight_requests("is_internal_payment");
+
+        let result = self.inner.is_internal_payment(request).await;
+
+        let duration = start.elapsed().as_secs_f64();
+        METRICS.record_mint_operation_histogram("is_internal_payment", result.is_ok(), duration);
+        METRICS.dec_in_flight_requests("is_internal_payment");
 
         result
     }

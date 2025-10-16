@@ -161,17 +161,6 @@ impl Mint {
                 )
             });
 
-        if internal_melts_only {
-            let mut tx = self.localstore.begin_transaction().await?;
-            let matching_mint_quote = tx.get_mint_quote_by_request(&request.to_string()).await?;
-            tx.commit().await?;
-
-            if matching_mint_quote.is_none() {
-                let mint_name = mint_info.name.unwrap_or_else(|| "this mint".to_string());
-                return Err(Error::InternalSettlementOnly(mint_name));
-            }
-        }
-
         let ln = self
             .payment_processors
             .get(&PaymentProcessorKey::new(
@@ -183,6 +172,29 @@ impl Mint {
 
                 Error::UnsupportedUnit
             })?;
+
+        if internal_melts_only {
+            match ln.is_internal_payment(&request).await? {
+                Some(true) => {}
+                Some(false) => {
+                    let mint_name = mint_info.name.unwrap_or_else(|| "this mint".to_string());
+                    return Err(Error::InternalSettlementOnly(mint_name));
+                }
+                None => {
+                    // is_internal_payment is not implemented for this payment processor
+                    // so we fall back to checking if there is a matching mint quote
+                    let mut tx = self.localstore.begin_transaction().await?;
+                    let matching_mint_quote =
+                        tx.get_mint_quote_by_request(&request.to_string()).await?;
+                    tx.commit().await?;
+
+                    if matching_mint_quote.is_none() {
+                        let mint_name = mint_info.name.unwrap_or_else(|| "this mint".to_string());
+                        return Err(Error::InternalSettlementOnly(mint_name));
+                    }
+                }
+            }
+        }
 
         let bolt11 = Bolt11OutgoingPaymentOptions {
             bolt11: melt_request.request.clone(),
