@@ -24,7 +24,7 @@ uuid.workspace = true
 axum.workspace = true
 
 # Square payment integration
-squareup = "2.13.2"
+squareup = { version = "2.13.2", default-features = false, features = ["rustls-tls"] }
 reqwest = { workspace = true }
 bitcoin = { workspace = true }
 rustls = { workspace = true }
