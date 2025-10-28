@@ -129,23 +129,35 @@ impl Square {
         self.refresh_merchant_names().await?;
 
         if self.webhook_enabled && self.webhook_url.is_some() {
-            self.setup_webhook_subscription().await?;
+            // Attempt to set up webhook subscription, but don't fail if it doesn't work
+            // Common reasons: subscription limit reached, authentication issues
+            if let Err(e) = self.setup_webhook_subscription().await {
+                tracing::warn!(
+                    "Failed to set up Square webhook subscription: {}. Continuing without webhooks.",
+                    e
+                );
+            }
 
             self.sync_payments().await?;
         } else {
             self.sync_payments().await?;
 
-            let square = self.clone();
-            tokio::spawn(async move {
-                let mut interval =
-                    tokio::time::interval(tokio::time::Duration::from_secs(SYNC_POLLING_INTERVAL));
-                loop {
-                    interval.tick().await;
-                    if let Err(e) = square.sync_payments().await {
-                        tracing::warn!("Square payment sync failed: {}", e);
-                    }
-                }
-            });
+            // TODO: I commented this out because we can only have 3 webhook subscriptions on Square which means we
+            // will have to disable webhook mode for production. This is more efficient than polling.
+            // Most invoices will be paid within 30 seconds of creation, so polling every 5 seconds seems unnecessary,
+            // when we can just resync the payments per payment request
+
+            // let square = self.clone();
+            // tokio::spawn(async move {
+            //     let mut interval =
+            //         tokio::time::interval(tokio::time::Duration::from_secs(SYNC_POLLING_INTERVAL));
+            //     loop {
+            //         interval.tick().await;
+            //         if let Err(e) = square.sync_payments().await {
+            //             tracing::warn!("Square payment sync failed: {}", e);
+            //         }
+            //     }
+            // });
         }
 
         // Start background task to periodically refresh OAuth token from database

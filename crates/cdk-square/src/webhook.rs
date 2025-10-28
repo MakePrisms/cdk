@@ -8,7 +8,6 @@ use axum::Router;
 use bitcoin::base64::Engine as _;
 use bitcoin::secp256k1::hashes::{hmac, sha256, Hash, HashEngine, HmacEngine};
 use serde_json::Value;
-use squareup::api::WebhookSubscriptionsApi;
 use uuid::Uuid;
 
 use crate::error::Error;
@@ -30,42 +29,61 @@ impl crate::client::Square {
             }
         };
 
-        let webhooks_api = WebhookSubscriptionsApi::new(self.client.as_ref().clone());
+        let base_url = self.get_base_url();
 
         // List existing subscriptions to check if we already have one
-        let list_params = squareup::models::ListWebhookSubscriptionsParams::default();
-        match webhooks_api.list_webhook_subscriptions(&list_params).await {
-            Ok(response) => {
-                if let Some(subscriptions) = response.subscriptions {
-                    // Check if we already have a subscription with our webhook URL and payment.created event
-                    for subscription in subscriptions {
-                        if subscription.notification_url.as_ref() == Some(webhook_url)
-                            && subscription
-                                .event_types
-                                .as_ref()
-                                .map(|events| {
-                                    events.iter().any(|e| {
-                                        // Check if any event type string contains "payment" and "created"
-                                        let event_str = format!("{:?}", e).to_lowercase();
-                                        event_str.contains("payment")
-                                            && event_str.contains("created")
-                                    })
-                                })
-                                .unwrap_or(false)
-                        {
-                            tracing::info!(
-                                "Using existing Square webhook subscription: {}",
-                                subscription.id.as_deref().unwrap_or("unknown")
-                            );
-                            return Ok(());
-                        }
+        let client = reqwest::Client::new();
+        let list_response = client
+            .get(format!("{}/v2/webhooks/subscriptions", base_url))
+            .header("Authorization", format!("Bearer {}", self.api_token))
+            .header("Square-Version", "2025-09-24")
+            .header("Content-Type", "application/json")
+            .send()
+            .await
+            .map_err(|e| {
+                Error::SquareHttp(format!("Failed to list webhook subscriptions: {}", e))
+            })?;
+
+        if list_response.status().is_success() {
+            let list_body: Value = list_response.json().await.map_err(|e| {
+                Error::SquareHttp(format!("Failed to parse list webhook response: {}", e))
+            })?;
+
+            // Check if we already have a subscription with our webhook URL and payment.created event
+            if let Some(subscriptions) = list_body.get("subscriptions").and_then(|s| s.as_array()) {
+                for subscription in subscriptions {
+                    let notification_url = subscription
+                        .get("notification_url")
+                        .and_then(|u| u.as_str());
+                    let event_types = subscription
+                        .get("event_types")
+                        .and_then(|e| e.as_array())
+                        .map(|events| {
+                            events.iter().any(|e| {
+                                e.as_str().map(|s| s == "payment.created").unwrap_or(false)
+                            })
+                        })
+                        .unwrap_or(false);
+
+                    if notification_url == Some(webhook_url.as_str()) && event_types {
+                        let subscription_id = subscription
+                            .get("id")
+                            .and_then(|id| id.as_str())
+                            .unwrap_or("unknown");
+                        tracing::info!(
+                            "Using existing Square webhook subscription: {}",
+                            subscription_id
+                        );
+                        return Ok(());
                     }
                 }
             }
-            Err(e) => {
-                tracing::warn!("Failed to list webhook subscriptions: {}", e);
-                // Continue to try creating a new one
-            }
+        } else {
+            tracing::warn!(
+                "Failed to list webhook subscriptions: {}",
+                list_response.status()
+            );
+            // Continue to try creating a new one
         }
 
         // No existing subscription found, create a new one
