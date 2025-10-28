@@ -1186,7 +1186,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl<'a> KVStoreTransaction<'a, DatabaseError> for MockKVTransaction {
+    impl KVStoreTransaction<'_, DatabaseError> for MockKVTransaction {
         async fn kv_read(
             &mut self,
             primary_namespace: &str,

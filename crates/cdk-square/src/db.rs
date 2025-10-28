@@ -2,6 +2,8 @@
 
 use std::sync::Arc;
 
+use native_tls::TlsConnector;
+use postgres_native_tls::MakeTlsConnector;
 use tokio_postgres::Client;
 
 use crate::error::Error;
@@ -26,19 +28,13 @@ pub struct SquareDatabase {
 impl SquareDatabase {
     /// Create a new database connection
     pub async fn new(database_url: &str) -> Result<Self, Error> {
-        // Ensure rustls crypto provider is installed
-        if rustls::crypto::CryptoProvider::get_default().is_none() {
-            let _ = rustls::crypto::ring::default_provider().install_default();
-        }
+        // Create TLS connector with lenient settings for development
+        let builder = TlsConnector::builder();
 
-        // Create TLS connector
-        let root_cert_store = rustls::RootCertStore {
-            roots: webpki_roots::TLS_SERVER_ROOTS.iter().cloned().collect(),
-        };
-        let config = rustls::ClientConfig::builder()
-            .with_root_certificates(root_cert_store)
-            .with_no_client_auth();
-        let tls = tokio_postgres_rustls::MakeRustlsConnect::new(config);
+        let connector = builder.build().map_err(|e| {
+            Error::DatabaseConnection(format!("Failed to build TLS connector: {}", e))
+        })?;
+        let tls = MakeTlsConnector::new(connector);
 
         let (client, connection) =
             tokio_postgres::connect(database_url, tls)
