@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use native_tls::TlsConnector;
 use postgres_native_tls::MakeTlsConnector;
-use tokio_postgres::Client;
+use tokio_postgres::{Client, NoTls};
 
 use crate::error::Error;
 
@@ -37,7 +37,7 @@ impl SquareDatabase {
         let tls = MakeTlsConnector::new(connector);
 
         let (client, connection) =
-            tokio_postgres::connect(database_url, tls)
+            tokio_postgres::connect(database_url, NoTls)
                 .await
                 .map_err(|e| {
                     Error::DatabaseConnection(format!("Failed to connect to database: {}", e))
