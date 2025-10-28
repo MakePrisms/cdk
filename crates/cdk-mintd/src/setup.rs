@@ -168,6 +168,7 @@ impl config::FakeWallet {
                 environment: square_cfg.environment.clone(),
                 webhook_enabled: square_cfg.webhook_enabled,
                 payment_expiry: cdk_square::DEFAULT_SQUARE_PAYMENT_EXPIRY,
+                database_url: square_cfg.database_url.clone(),
             };
 
             (Some(square_config), Some(webhook_url.to_string()))
@@ -450,6 +451,7 @@ impl config::Nwc {
                 environment: square_cfg.environment.clone(),
                 webhook_enabled: square_cfg.webhook_enabled,
                 payment_expiry: cdk_square::DEFAULT_SQUARE_PAYMENT_EXPIRY,
+                database_url: square_cfg.database_url.clone(),
             };
 
             (Some(square_config), Some(webhook_url.to_string()))

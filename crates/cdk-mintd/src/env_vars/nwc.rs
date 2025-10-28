@@ -3,7 +3,7 @@
 use std::env;
 
 use crate::config::Nwc;
-#[cfg(feature = "square")]
+#[cfg(any(feature = "square", feature = "fakewallet"))]
 use crate::config::SquareConfig;
 
 // NWC environment variables
@@ -18,6 +18,8 @@ pub const ENV_SQUARE_API_TOKEN: &str = "CDK_MINTD_SQUARE_API_TOKEN";
 pub const ENV_SQUARE_ENVIRONMENT: &str = "CDK_MINTD_SQUARE_ENVIRONMENT";
 #[cfg(feature = "square")]
 pub const ENV_SQUARE_WEBHOOK_ENABLED: &str = "CDK_MINTD_SQUARE_WEBHOOK_ENABLED";
+#[cfg(feature = "square")]
+pub const ENV_SQUARE_DATABASE_URL: &str = "CDK_MINTD_SQUARE_DATABASE_URL";
 
 impl Nwc {
     pub fn from_env(mut self) -> Self {
@@ -48,10 +50,13 @@ impl Nwc {
                 .and_then(|v| v.parse::<bool>().ok())
                 .unwrap_or(true);
 
+            let database_url = env::var(ENV_SQUARE_DATABASE_URL).unwrap_or_default();
+
             self.square = Some(SquareConfig {
                 api_token,
                 environment,
                 webhook_enabled,
+                database_url,
             });
         }
 

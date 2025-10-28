@@ -164,6 +164,7 @@ max_delay_time = 3
 # api_token = "your_square_api_token_here"
 # environment = "SANDBOX"  # or "PRODUCTION"
 # webhook_enabled = true  # If false, uses polling mode (syncs every 5 seconds) instead of webhooks
+# database_url = "postgresql://user:password@host:port/database?sslmode=require"  # PostgreSQL connection for OAuth credentials
 
 # [nwc]
 # nwc_uri = "nostr+walletconnect://..."
@@ -175,6 +176,7 @@ max_delay_time = 3
 # api_token = "your_square_api_token_here"
 # environment = "SANDBOX"  # or "PRODUCTION"
 # webhook_enabled = true  # If false, uses polling mode (syncs every 5 seconds) instead of webhooks
+# database_url = "postgresql://user:password@host:port/database?sslmode=require"  # PostgreSQL connection for OAuth credentials
 
 # [grpc_processor]
 # gRPC Payment Processor configuration

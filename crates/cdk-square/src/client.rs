@@ -11,6 +11,7 @@ use squareup::SquareClient;
 use tokio::sync::RwLock;
 
 use crate::config::SquareConfig;
+use crate::db::SquareDatabase;
 use crate::error::Error;
 use crate::types::{ListMerchantsResponse, ListPaymentsParams, ListPaymentsResponse};
 use crate::util::{
@@ -24,7 +25,7 @@ const SYNC_POLLING_INTERVAL: u64 = 5;
 pub struct Square {
     /// Square API client
     pub(crate) client: Arc<SquareClient>,
-    /// Square API token for direct API calls
+    /// Square API token for direct API calls (used for webhook management)
     pub(crate) api_token: String,
     /// Square environment (sandbox or production)
     pub(crate) environment: SquareEnvironment,
@@ -38,12 +39,19 @@ pub struct Square {
     pub(crate) kv_store: DynMintKVStore,
     /// Cached merchant business names for invoice description matching
     pub(crate) merchant_names: Arc<RwLock<Vec<String>>>,
+    /// PostgreSQL database URL for OAuth credentials
+    pub(crate) database_url: String,
+    /// PostgreSQL database connection for OAuth credentials (initialized in start())
+    pub(crate) db: Arc<RwLock<Option<SquareDatabase>>>,
+    /// Cached OAuth access token from database
+    pub(crate) oauth_token: Arc<RwLock<String>>,
 }
 
 impl Square {
     /// Initialize Square backend from configuration
     ///
     /// Returns `Err` if configuration is invalid.
+    /// Database initialization happens in `start()`.
     pub fn from_config(
         square_config: SquareConfig,
         webhook_url: Option<String>,
@@ -81,6 +89,9 @@ impl Square {
             payment_expiry: square_config.payment_expiry,
             kv_store,
             merchant_names: Arc::new(RwLock::new(Vec::new())),
+            database_url: square_config.database_url,
+            db: Arc::new(RwLock::new(None)),
+            oauth_token: Arc::new(RwLock::new(String::new())),
         };
 
         Ok(square)
@@ -91,9 +102,30 @@ impl Square {
     /// If webhook_enabled is true and webhook_url is configured, sets up webhook subscription.
     /// Otherwise, starts a background task that polls every 5 seconds.
     ///
-    /// This method blocks until the initial payment sync completes successfully.
+    /// This method initializes the database connection and blocks until the initial payment sync completes successfully.
     /// If the initial sync fails, an error is returned and the mint will not start.
     pub async fn start(&self) -> Result<(), Error> {
+        // Initialize database connection for OAuth credentials
+        let db = SquareDatabase::new(&self.database_url).await?;
+
+        // Fetch initial OAuth credentials from database
+        let credentials = db.read_credentials().await.map_err(|e| {
+            Error::SquareConfig(format!(
+                "Failed to read OAuth credentials from database: {}. Ensure credentials are set up in PostgreSQL.",
+                e
+            ))
+        })?;
+
+        // Store the database connection and OAuth token
+        {
+            let mut db_lock = self.db.write().await;
+            *db_lock = Some(db);
+        }
+        {
+            let mut token_lock = self.oauth_token.write().await;
+            *token_lock = credentials.access_token;
+        }
+
         self.refresh_merchant_names().await?;
 
         if self.webhook_enabled && self.webhook_url.is_some() {
@@ -115,6 +147,30 @@ impl Square {
                 }
             });
         }
+
+        // Start background task to periodically refresh OAuth token from database
+        let square_for_token_refresh = self.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+            loop {
+                interval.tick().await;
+                let db_opt = square_for_token_refresh.db.read().await;
+                if let Some(ref db) = *db_opt {
+                    match db.read_credentials().await {
+                        Ok(credentials) => {
+                            drop(db_opt); // Release read lock before acquiring write lock
+                            let mut token = square_for_token_refresh.oauth_token.write().await;
+                            *token = credentials.access_token;
+                            tracing::debug!("Refreshed OAuth access token from database");
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to refresh OAuth token from database: {}", e);
+                        }
+                    }
+                }
+            }
+        });
+
         tracing::debug!("Square payment sync completed successfully");
 
         Ok(())
@@ -275,9 +331,11 @@ impl Square {
             }
         };
 
+        let oauth_token = self.oauth_token.read().await.clone();
+
         let mut request = client
             .get(&url)
-            .header("Authorization", format!("Bearer {}", self.api_token))
+            .header("Authorization", format!("Bearer {}", oauth_token))
             .header("Square-Version", "2025-09-24")
             .query(&[("limit", params.limit.to_string())]);
 
@@ -447,10 +505,12 @@ impl Square {
             }
         };
 
+        let oauth_token = self.oauth_token.read().await.clone();
+
         tracing::debug!("Sending GET request to {}", url);
         let response = client
             .get(&url)
-            .header("Authorization", format!("Bearer {}", self.api_token))
+            .header("Authorization", format!("Bearer {}", oauth_token))
             .header("Square-Version", "2025-09-24")
             .header("Content-Type", "application/json")
             .send()

@@ -29,3 +29,9 @@ reqwest = { workspace = true }
 bitcoin = { workspace = true }
 rustls = { workspace = true }
 
+# PostgreSQL database for OAuth credentials
+tokio-postgres = "0.7.13"
+tokio-postgres-rustls = "0.13"
+rustls-native-certs = "0.8"
+webpki-roots = "0.26"
+

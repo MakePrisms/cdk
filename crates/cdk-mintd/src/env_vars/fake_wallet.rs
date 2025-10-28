@@ -18,6 +18,7 @@ pub const ENV_FAKE_WALLET_SQUARE_API_TOKEN: &str = "CDK_MINTD_FAKE_WALLET_SQUARE
 pub const ENV_FAKE_WALLET_SQUARE_ENVIRONMENT: &str = "CDK_MINTD_FAKE_WALLET_SQUARE_ENVIRONMENT";
 pub const ENV_FAKE_WALLET_SQUARE_WEBHOOK_ENABLED: &str =
     "CDK_MINTD_FAKE_WALLET_SQUARE_WEBHOOK_ENABLED";
+pub const ENV_FAKE_WALLET_SQUARE_DATABASE_URL: &str = "CDK_MINTD_FAKE_WALLET_SQUARE_DATABASE_URL";
 
 impl FakeWallet {
     pub fn from_env(mut self) -> Self {
@@ -66,10 +67,13 @@ impl FakeWallet {
                 .and_then(|v| v.parse::<bool>().ok())
                 .unwrap_or(true);
 
+            let database_url = env::var(ENV_FAKE_WALLET_SQUARE_DATABASE_URL).unwrap_or_default();
+
             self.square = Some(SquareConfig {
                 api_token,
                 environment,
                 webhook_enabled,
+                database_url,
             });
         }
 

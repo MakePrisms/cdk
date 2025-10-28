@@ -318,22 +318,24 @@ pub struct Nwc {
     pub square: Option<SquareConfig>,
 }
 
-#[cfg(feature = "nwc")]
+#[cfg(any(feature = "nwc", feature = "fakewallet"))]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SquareConfig {
     pub api_token: String,
     pub environment: String,
     #[serde(default = "default_webhook_enabled")]
     pub webhook_enabled: bool,
+    pub database_url: String,
 }
 
-#[cfg(feature = "nwc")]
+#[cfg(any(feature = "nwc", feature = "fakewallet"))]
 impl Default for SquareConfig {
     fn default() -> Self {
         Self {
             api_token: String::new(),
             environment: String::from("SANDBOX"),
             webhook_enabled: true,
+            database_url: String::new(),
         }
     }
 }

@@ -17,7 +17,21 @@ pub enum Error {
     #[error("Database error: {0}")]
     Database(#[from] cdk_common::database::Error),
 
+    /// Database connection error
+    #[error("Database connection error: {0}")]
+    DatabaseConnection(String),
+
+    /// Database query error
+    #[error("Database query error: {0}")]
+    DatabaseQuery(String),
+
     /// Bolt11 parsing error
     #[error("Bolt11 parsing error: {0}")]
     Bolt11Parse(String),
+}
+
+impl From<tokio_postgres::Error> for Error {
+    fn from(err: tokio_postgres::Error) -> Self {
+        Error::DatabaseQuery(err.to_string())
+    }
 }

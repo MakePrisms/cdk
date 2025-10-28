@@ -20,20 +20,18 @@
 //! let config = SquareConfig {
 //!     api_token: "your-api-token".to_string(),
 //!     environment: "SANDBOX".to_string(),
+//!     database_url: "postgresql://user:pass@host:5432/db?sslmode=require".to_string(),
 //!     webhook_enabled: true,
 //!     payment_expiry: 300, // 5 minutes
 //! };
 //!
 //! let square = Square::from_config(
-//!     Some(config),
+//!     config,
 //!     Some("https://your-mint.com/webhook".to_string()),
 //!     kv_store,
-//! )
-//! .await?;
+//! )?;
 //!
-//! if let Some(square) = square {
-//!     square.start().await?;
-//! }
+//! square.start().await?;
 //! # Ok(())
 //! # }
 //! ```
@@ -43,6 +41,7 @@
 
 pub mod client;
 pub mod config;
+pub mod db;
 pub mod error;
 pub mod sync;
 pub mod types;
@@ -52,6 +51,7 @@ pub mod webhook;
 // Re-export main types
 pub use client::Square;
 pub use config::SquareConfig;
+pub use db::OAuthCredentials;
 pub use error::Error;
 pub use types::{
     LightningDetails, ListMerchantsResponse, ListPaymentsParams, ListPaymentsResponse, Merchant,
