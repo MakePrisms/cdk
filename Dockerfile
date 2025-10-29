@@ -20,7 +20,7 @@ WORKDIR /usr/src/app
 
 # Install needed runtime dependencies (if any)
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends patchelf ca-certificates && \
+    apt-get install -y --no-install-recommends patchelf && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy the built application from the build stage
