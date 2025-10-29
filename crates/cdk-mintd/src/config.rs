@@ -315,6 +315,33 @@ pub struct Nwc {
     pub nwc_uri: String,
     pub fee_percent: f32,
     pub reserve_fee_min: Amount,
+    pub square: Option<SquareConfig>,
+}
+
+#[cfg(any(feature = "nwc", feature = "fakewallet"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SquareConfig {
+    pub api_token: String,
+    pub environment: String,
+    #[serde(default = "default_webhook_enabled")]
+    pub webhook_enabled: bool,
+    pub database_url: String,
+}
+
+#[cfg(any(feature = "nwc", feature = "fakewallet"))]
+impl Default for SquareConfig {
+    fn default() -> Self {
+        Self {
+            api_token: String::new(),
+            environment: String::from("SANDBOX"),
+            webhook_enabled: true,
+            database_url: String::new(),
+        }
+    }
+}
+
+fn default_webhook_enabled() -> bool {
+    true
 }
 
 #[cfg(feature = "fakewallet")]
@@ -327,6 +354,7 @@ pub struct FakeWallet {
     pub min_delay_time: u64,
     #[serde(default = "default_max_delay_time")]
     pub max_delay_time: u64,
+    pub square: Option<SquareConfig>,
 }
 
 #[cfg(feature = "fakewallet")]
@@ -338,6 +366,7 @@ impl Default for FakeWallet {
             reserve_fee_min: 2.into(),
             min_delay_time: 1,
             max_delay_time: 3,
+            square: None,
         }
     }
 }

@@ -390,6 +390,14 @@ pub trait KVStoreTransaction<'a, Error>: DbTransactionFinalizer<Err = Error> {
         primary_namespace: &str,
         secondary_namespace: &str,
     ) -> Result<Vec<String>, Error>;
+
+    /// Remove values from key-value store where the value was updated before a given time
+    async fn kv_remove_older_than(
+        &mut self,
+        primary_namespace: &str,
+        secondary_namespace: &str,
+        expiry_time: u64,
+    ) -> Result<(), Error>;
 }
 
 /// Base database writer

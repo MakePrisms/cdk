@@ -341,6 +341,9 @@ release m="":
     "-p cdk-payment-processor"
     "-p cdk-cli"
     "-p cdk-mintd"
+    "-p cdk-square"
+    "-p cdk-nwc"
+    "-p cdk-strike"
   )
 
   for arg in "${args[@]}";
@@ -377,6 +380,9 @@ check-docs:
     "-p cdk-signatory"
     "-p cdk-cli"
     "-p cdk-mintd"
+    "-p cdk-square"
+    "-p cdk-nwc"
+    "-p cdk-strike"
   )
 
   for arg in "${args[@]}"; do
@@ -408,6 +414,7 @@ docs-strict:
     "-p cdk-signatory"
     "-p cdk-cli"
     "-p cdk-mintd"
+    "-p cdk-square"
   )
 
   for arg in "${args[@]}"; do

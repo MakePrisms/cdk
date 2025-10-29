@@ -1186,7 +1186,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl<'a> KVStoreTransaction<'a, DatabaseError> for MockKVTransaction {
+    impl KVStoreTransaction<'_, DatabaseError> for MockKVTransaction {
         async fn kv_read(
             &mut self,
             primary_namespace: &str,
@@ -1227,6 +1227,15 @@ mod tests {
             _secondary_namespace: &str,
         ) -> Result<Vec<String>, DatabaseError> {
             Ok(vec![])
+        }
+
+        async fn kv_remove_older_than(
+            &mut self,
+            _primary_namespace: &str,
+            _secondary_namespace: &str,
+            _expiry_time: u64,
+        ) -> Result<(), DatabaseError> {
+            Ok(())
         }
     }
 

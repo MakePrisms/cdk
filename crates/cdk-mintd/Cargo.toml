@@ -11,7 +11,7 @@ rust-version.workspace = true
 readme = "README.md"
 
 [features]
-default = ["management-rpc", "cln", "lnd", "lnbits", "fakewallet", "grpc-processor", "sqlite", "strike", "nwc"]
+default = ["management-rpc", "cln", "lnd", "lnbits", "fakewallet", "grpc-processor", "sqlite", "strike", "nwc", "square"]
 # Database features - at least one must be enabled
 sqlite = ["dep:cdk-sqlite"]
 postgres = ["dep:cdk-postgres"]
@@ -30,6 +30,8 @@ swagger = ["cdk-axum/swagger", "dep:utoipa", "dep:utoipa-swagger-ui"]
 auth = ["cdk/auth", "cdk-axum/auth", "cdk-sqlite?/auth", "cdk-postgres?/auth"]
 prometheus = ["cdk/prometheus", "dep:cdk-prometheus", "cdk-sqlite?/prometheus", "cdk-axum/prometheus"]
 strike = ["dep:cdk-strike"]
+
+square = ["dep:cdk-square", "cdk-fake-wallet?/square", "cdk-nwc?/square"]
 
 [dependencies]
 anyhow.workspace = true
@@ -71,5 +73,7 @@ lightning-invoice.workspace = true
 home.workspace = true
 utoipa = { workspace = true, optional = true }
 utoipa-swagger-ui = { version = "9.0.0", features = ["axum"], optional = true }
+
+cdk-square = { workspace = true, optional = true }
 
 [build-dependencies]

@@ -17,15 +17,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use axum::Router;
 use bitcoin::hashes::sha256::Hash;
 use cdk_common::amount::{to_unit, Amount};
 use cdk_common::common::FeeReserve;
+use cdk_common::database::mint::DynMintKVStore;
 use cdk_common::nuts::{CurrencyUnit, MeltOptions, MeltQuoteState};
 use cdk_common::payment::{
     self, Bolt11Settings, CreateIncomingPaymentResponse, Event, IncomingPaymentOptions,
     MakePaymentResponse, MintPayment, OutgoingPaymentOptions, PaymentIdentifier,
     PaymentQuoteResponse, WaitPaymentResponse,
 };
+#[cfg(feature = "square")]
 use cdk_common::util::hex;
 use cdk_common::Bolt11Invoice;
 use error::Error;
@@ -62,6 +65,9 @@ pub struct NWCWallet {
     unit: CurrencyUnit,
     /// Notification handler task handle
     notification_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    /// Optional Square payment backend
+    #[cfg(feature = "square")]
+    square: Option<Arc<cdk_square::Square>>,
 }
 
 impl NWCWallet {
@@ -71,6 +77,9 @@ impl NWCWallet {
         fee_reserve: FeeReserve,
         unit: CurrencyUnit,
         internal_melts_only: bool,
+        kv_store: DynMintKVStore,
+        #[cfg(feature = "square")] square_config: Option<cdk_square::SquareConfig>,
+        #[cfg(feature = "square")] square_webhook_url: Option<String>,
     ) -> Result<Self, Error> {
         // NWC requires TLS for talking to the relay
         if rustls::crypto::CryptoProvider::get_default().is_none() {
@@ -105,6 +114,24 @@ impl NWCWallet {
 
         let (sender, receiver) = tokio::sync::broadcast::channel(100);
 
+        // Initialize Square backend if configuration is provided
+        // If webhook_url is None, Square will use polling mode (sync every 5 seconds)
+        #[cfg(feature = "square")]
+        let square = match square_config {
+            Some(config) => {
+                match cdk_square::Square::from_config(config, square_webhook_url, kv_store.clone())
+                {
+                    Ok(square_backend) => {
+                        let square_arc = Arc::new(square_backend);
+                        square_arc.start().await?;
+                        Some(square_arc)
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+            }
+            None => None,
+        };
+
         let wallet = Self {
             nwc_client,
             fee_reserve,
@@ -114,12 +141,26 @@ impl NWCWallet {
             wait_invoice_is_active: Arc::new(AtomicBool::new(false)),
             unit,
             notification_handle: Arc::new(Mutex::new(None)),
+            #[cfg(feature = "square")]
+            square,
         };
 
         // Start notification handler
         wallet.start_notification_handler().await?;
 
         Ok(wallet)
+    }
+
+    /// Create Square webhook router for payment notifications
+    ///
+    /// # Returns
+    /// * `Some(Router)` if Square backend is configured with a webhook URL
+    /// * `None` if Square backend is not configured or is using polling mode
+    #[cfg(feature = "square")]
+    pub fn create_square_webhook_router(&self) -> Option<Router> {
+        self.square
+            .as_ref()
+            .and_then(|square| square.create_webhook_router())
     }
 
     /// Start the notification handler for payment updates
@@ -244,6 +285,35 @@ impl MintPayment for NWCWallet {
             amountless: true,
             bolt12: false,
         })?)
+    }
+
+    #[instrument(skip_all)]
+    async fn is_internal_payment(
+        &self,
+        request: &Bolt11Invoice,
+    ) -> Result<Option<bool>, Self::Err> {
+        #[cfg(feature = "square")]
+        {
+            let Some(square) = self.square.as_ref() else {
+                return Ok(None);
+            };
+
+            // Check if this invoice exists in our Square tracking
+            return square
+                .check_invoice_exists(request)
+                .await
+                .map_err(|e| {
+                    tracing::error!("Error checking Square invoice: {}", e);
+                    Error::Square(e).into()
+                })
+                .map(Some);
+        }
+
+        #[cfg(not(feature = "square"))]
+        {
+            let _ = request; // Avoid unused variable warning
+            Ok(None)
+        }
     }
 
     #[instrument(skip_all)]
