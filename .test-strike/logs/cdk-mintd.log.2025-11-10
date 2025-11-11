@@ -1,0 +1,23 @@
+[2m2025-11-10T23:44:32.809172Z[0m [32m INFO[0m [2mcdk_mintd[0m[2m:[0m Logging initialized: console (INFO+) and file at .test-strike/logs/cdk-mintd.log (DEBUG+)
+[2m2025-11-10T23:44:32.836259Z[0m [34mDEBUG[0m [2mcdk_mintd[0m[2m:[0m Ln backend: Strike
+[2m2025-11-10T23:44:32.836334Z[0m [32m INFO[0m [2mcdk_mintd[0m[2m:[0m Using Strike backend with supported units: [Sat, Usd]
+[2m2025-11-10T23:44:33.105499Z[0m [32m INFO[0m [2mcdk::mint[0m[2m:[0m Using Signatory Embedded with 2 active keys
+[2m2025-11-10T23:44:33.105838Z[0m [34mDEBUG[0m [2mcdk_mintd[0m[2m:[0m Mint built from builder.
+[2m2025-11-10T23:44:33.105962Z[0m [32m INFO[0m [2mcdk_mintd[0m[2m:[0m RPC not enabled, using mint info and quote TTL from config.
+[2m2025-11-10T23:44:33.106215Z[0m [32m INFO[0m [1mset_mint_info[0m[2m:[0m [2mcdk::mint[0m[2m:[0m Updating mint info
+[2m2025-11-10T23:44:33.107164Z[0m [32m INFO[0m [2mcdk::mint::start_up_check[0m[2m:[0m No incomplete swap sagas found to recover.
+[2m2025-11-10T23:44:33.107202Z[0m [32m INFO[0m [2mcdk::mint::start_up_check[0m[2m:[0m No incomplete melt sagas found to recover.
+[2m2025-11-10T23:44:33.107226Z[0m [32m INFO[0m [2mcdk::mint[0m[2m:[0m Starting payment processors...
+[2m2025-11-10T23:44:33.107234Z[0m [32m INFO[0m [2mcdk::mint[0m[2m:[0m Starting payment wait task for PaymentProcessorKey { unit: Sat, method: Bolt11 }
+[2m2025-11-10T23:44:33.107255Z[0m [34mDEBUG[0m [2mcdk::mint[0m[2m:[0m Successfully started payment processor for PaymentProcessorKey { unit: Sat, method: Bolt11 }
+[2m2025-11-10T23:44:33.107261Z[0m [32m INFO[0m [2mcdk::mint[0m[2m:[0m Starting payment wait task for PaymentProcessorKey { unit: Usd, method: Bolt11 }
+[2m2025-11-10T23:44:33.107267Z[0m [34mDEBUG[0m [2mcdk::mint[0m[2m:[0m Successfully started payment processor for PaymentProcessorKey { unit: Usd, method: Bolt11 }
+[2m2025-11-10T23:44:33.107272Z[0m [32m INFO[0m [2mcdk::mint[0m[2m:[0m Payment processor startup completed
+[2m2025-11-10T23:44:33.107394Z[0m [32m INFO[0m [1mwait_for_paid_invoices[0m[2m:[0m [2mcdk::mint[0m[2m:[0m Starting payment wait task for PaymentProcessorKey { unit: Sat, method: Bolt11 }
+[2m2025-11-10T23:44:33.107432Z[0m [32m INFO[0m [1mwait_for_paid_invoices[0m[2m:[0m [2mcdk::mint[0m[2m:[0m Starting payment wait task for PaymentProcessorKey { unit: Usd, method: Bolt11 }
+[2m2025-11-10T23:44:33.107521Z[0m [32m INFO[0m [1mwait_for_processor_payments[0m[2m:[0m [2mcdk_strike[0m[2m:[0m Starting Strike payment event stream
+[2m2025-11-10T23:44:33.107522Z[0m [32m INFO[0m [1mwait_for_processor_payments[0m[2m:[0m [2mcdk_strike[0m[2m:[0m Starting Strike payment event stream
+[2m2025-11-10T23:44:33.119383Z[0m [32m INFO[0m [2mcdk::mint[0m[2m:[0m Mint background services started
+[2m2025-11-10T23:44:33.119481Z[0m [32m INFO[0m [2mcdk_mintd[0m[2m:[0m listening on 127.0.0.1:8085
+[2m2025-11-10T23:44:33.403820Z[0m [33m WARN[0m [1mwait_for_processor_payments[0m[2m:[0m [2mcdk_strike[0m[2m:[0m Webhook subscription failed, using polling mode
+[2m2025-11-10T23:44:33.403990Z[0m [33m WARN[0m [1mwait_for_processor_payments[0m[2m:[0m [2mcdk_strike[0m[2m:[0m Webhook subscription failed, using polling mode

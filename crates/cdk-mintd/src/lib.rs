@@ -22,7 +22,8 @@ use cdk::nuts::nut00::KnownMethod;
     feature = "lnd",
     feature = "ldk-node",
     feature = "fakewallet",
-    feature = "grpc-processor"
+    feature = "grpc-processor",
+    feature = "strike"
 ))]
 use cdk::nuts::nut17::SupportedMethods;
 use cdk::nuts::nut19::{CachedEndpoint, Method as NUT19Method, Path as NUT19Path};
@@ -31,6 +32,7 @@ use cdk::nuts::nut19::{CachedEndpoint, Method as NUT19Method, Path as NUT19Path}
     feature = "lnbits",
     feature = "lnd",
     feature = "ldk-node"
+    feature = "strike"
 ))]
 use cdk::nuts::CurrencyUnit;
 #[cfg(feature = "auth")]
@@ -348,7 +350,7 @@ async fn configure_mint_builder(
     let mint_builder = configure_basic_info(settings, mint_builder);
 
     // Configure lightning backend
-    let mint_builder =
+    let (mint_builder, additional_routers) =
         configure_lightning_backend(settings, mint_builder, runtime, work_dir, kv_store).await?;
 
     // Extract configured payment methods from mint_builder
@@ -364,7 +366,7 @@ async fn configure_mint_builder(
     // Configure caching with payment methods
     let mint_builder = configure_cache(settings, mint_builder, &payment_methods);
 
-    Ok(mint_builder)
+    Ok((mint_builder, additional_routers))
 }
 
 /// Configures basic mint information (name, contact info, descriptions, etc.)
@@ -582,6 +584,41 @@ async fn configure_lightning_backend(
             )
             .await?;
         }
+        #[cfg(feature = "strike")]
+        LnBackend::Strike => {
+            let strike_settings = settings.clone().strike.expect("Checked at config load");
+            tracing::info!(
+                "Using Strike backend with supported units: {:?}",
+                strike_settings.supported_units
+            );
+
+            let mut webhook_routers = Vec::new();
+
+            for unit in &strike_settings.supported_units {
+                let kv_store = _kv_store
+                    .clone()
+                    .ok_or_else(|| anyhow!("KV store is required for Strike backend"))?;
+                let (strike, webhook_router) = strike_settings
+                    .setup(settings, unit.clone(), kv_store)
+                    .await?;
+
+                webhook_routers.push(webhook_router);
+
+                #[cfg(feature = "prometheus")]
+                let strike = MetricsMintPayment::new(strike);
+
+                mint_builder = configure_backend_for_unit(
+                    settings,
+                    mint_builder,
+                    unit.clone(),
+                    mint_melt_limits,
+                    Arc::new(strike),
+                )
+                .await?;
+            }
+
+            return Ok((mint_builder, webhook_routers));
+        }
         LnBackend::None => {
             tracing::error!(
                 "Payment backend was not set or feature disabled. {:?}",
@@ -591,7 +628,7 @@ async fn configure_lightning_backend(
         }
     };
 
-    Ok(mint_builder)
+    Ok((mint_builder, vec![]))
 }
 
 /// Helper function to configure a mint builder with a lightning backend for a specific currency unit
@@ -1366,7 +1403,7 @@ pub async fn run_mintd_with_shutdown(
         }
     };
 
-    let mint_builder =
+    let (mint_builder, additional_routers) =
         configure_mint_builder(settings, maybe_mint_builder, runtime, work_dir, Some(kv)).await?;
     #[cfg(feature = "auth")]
     let (mint_builder, auth_localstore) =
@@ -1379,6 +1416,9 @@ pub async fn run_mintd_with_shutdown(
     tracing::debug!("Mint built from builder.");
 
     let mint = Arc::new(mint);
+
+    let mut routers = routers;
+    routers.extend(additional_routers);
 
     start_services_with_shutdown(
         mint.clone(),

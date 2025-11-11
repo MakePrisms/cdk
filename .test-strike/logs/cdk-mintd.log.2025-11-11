@@ -1,0 +1,11 @@
+[2m2025-11-11T18:00:08.285327Z[0m [32m INFO[0m [2mcdk_mintd[0m[2m:[0m Shutdown signal received
+[2m2025-11-11T18:00:08.287528Z[0m [32m INFO[0m [2mcdk_mintd[0m[2m:[0m Shutdown signal received, broadcasting to all services
+[2m2025-11-11T18:00:08.300303Z[0m [32m INFO[0m [2mcdk_mintd[0m[2m:[0m Axum server stopped with okay status
+[2m2025-11-11T18:00:08.301577Z[0m [32m INFO[0m [2mcdk::mint[0m[2m:[0m Stopping mint background services...
+[2m2025-11-11T18:00:08.301690Z[0m [32m INFO[0m [1mwait_for_paid_invoices[0m[2m:[0m [2mcdk::mint[0m[2m:[0m Shutting down payment processors
+[2m2025-11-11T18:00:08.304624Z[0m [32m INFO[0m [2mcdk::mint[0m[2m:[0m Mint background services stopped
+[2m2025-11-11T18:00:08.304634Z[0m [32m INFO[0m [2mcdk::mint[0m[2m:[0m Stopping payment processors...
+[2m2025-11-11T18:00:08.305170Z[0m [34mDEBUG[0m [2mcdk::mint[0m[2m:[0m Successfully stopped payment processor for PaymentProcessorKey { unit: Sat, method: Bolt11 }
+[2m2025-11-11T18:00:08.305598Z[0m [34mDEBUG[0m [2mcdk::mint[0m[2m:[0m Successfully stopped payment processor for PaymentProcessorKey { unit: Usd, method: Bolt11 }
+[2m2025-11-11T18:00:08.305606Z[0m [32m INFO[0m [2mcdk::mint[0m[2m:[0m Payment processor shutdown completed
+[2m2025-11-11T18:00:08.316543Z[0m [32m INFO[0m [2mcdk_mintd[0m[2m:[0m Shutting down logging worker thread
