@@ -1,0 +1,20 @@
+[package]
+name = "cdk-agicash"
+version.workspace = true
+authors = ["CDK Developers"]
+description = "Exteneded CDK functionality for Agicash"
+homepage = "https://github.com/MakePrisms/cdk"
+repository = "https://github.com/MakePrisms/cdk.git"
+edition.workspace = true
+rust-version.workspace = true # MSRV
+license.workspace = true
+readme = "README.md"
+
+[dependencies]
+async-trait.workspace = true
+cdk-common = { workspace = true, default-features = false, features = ["mint"] }
+parking_lot = "0.12.5"
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+

@@ -3,6 +3,7 @@
 //! This module contains all environment variable definitions and parsing logic
 //! organized by component.
 
+mod agicash;
 mod common;
 mod database;
 mod info;
@@ -33,6 +34,7 @@ mod strike;
 use std::env;
 use std::str::FromStr;
 
+pub use agicash::*;
 use anyhow::{anyhow, bail, Result};
 #[cfg(feature = "auth")]
 pub use auth::*;
@@ -97,6 +99,8 @@ impl Settings {
         self.info = self.info.clone().from_env();
         self.mint_info = self.mint_info.clone().from_env();
         self.ln = self.ln.clone().from_env();
+
+        self.agicash = Some(self.agicash.clone().unwrap_or_default().from_env());
 
         #[cfg(feature = "auth")]
         {

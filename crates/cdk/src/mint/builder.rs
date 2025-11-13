@@ -211,6 +211,12 @@ impl MintBuilder {
         self
     }
 
+    /// Set agicash info
+    pub fn with_agicash(mut self, agicash: crate::nuts::AgicashInfo) -> Self {
+        self.mint_info.agicash = Some(agicash);
+        self
+    }
+
     /// Support websockets
     pub fn with_supported_websockets(mut self, supported_method: SupportedMethods) -> Self {
         let mut supported_settings = self.mint_info.nuts.nut17.supported.clone();

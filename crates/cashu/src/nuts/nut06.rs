@@ -105,6 +105,9 @@ pub struct MintInfo {
     /// terms of url service of the mint
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tos_url: Option<String>,
+    /// agicash specific settings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agicash: Option<AgicashInfo>,
 }
 
 impl MintInfo {
@@ -215,6 +218,14 @@ impl MintInfo {
     {
         Self {
             tos_url: Some(tos_url.into()),
+            ..self
+        }
+    }
+
+    /// Set agicash info
+    pub fn agicash(self, agicash: AgicashInfo) -> Self {
+        Self {
+            agicash: Some(agicash),
             ..self
         }
     }
@@ -483,6 +494,22 @@ impl Nuts {
 pub struct SupportedSettings {
     /// Setting supported
     pub supported: bool,
+}
+
+/// Agicash Settings
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
+pub struct AgicashInfo {
+    /// Whether closed loop payments are enabled. If true, the mint will only make
+    /// payments that are within the loop.
+    pub closed_loop: bool,
+}
+
+impl AgicashInfo {
+    /// Create new [`AgicashInfo`]
+    pub fn new(closed_loop: bool) -> Self {
+        Self { closed_loop }
+    }
 }
 
 /// Contact Info

@@ -35,9 +35,9 @@ use cdk::nuts::nut19::{CachedEndpoint, Method as NUT19Method, Path as NUT19Path}
     feature = "strike"
 ))]
 use cdk::nuts::CurrencyUnit;
+use cdk::nuts::{AgicashInfo, ContactInfo, MintVersion, PaymentMethod};
 #[cfg(feature = "auth")]
 use cdk::nuts::{AuthRequired, Method, ProtectedEndpoint, RoutePath};
-use cdk::nuts::{ContactInfo, MintVersion, PaymentMethod};
 use cdk_axum::cache::HttpCache;
 use cdk_common::common::QuoteTTL;
 use cdk_common::database::DynMintDatabase;
@@ -386,7 +386,7 @@ fn configure_basic_info(settings: &config::Settings, mint_builder: MintBuilder) 
 
     // Add version information
     let mint_version = MintVersion::new(
-        "cdk-mintd".to_string(),
+        "cdk-agicash".to_string(),
         CARGO_PKG_VERSION.unwrap_or("Unknown").to_string(),
     );
 
@@ -434,6 +434,11 @@ fn configure_basic_info(settings: &config::Settings, mint_builder: MintBuilder) 
         if !tos_url.is_empty() {
             builder = builder.with_tos_url(tos_url.to_string());
         }
+    }
+
+    if let Some(agicash_config) = &settings.agicash {
+        let closed_loop_enabled = agicash_config.closed_loop.is_some();
+        builder = builder.with_agicash(AgicashInfo::new(closed_loop_enabled));
     }
 
     builder

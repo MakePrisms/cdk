@@ -435,6 +435,41 @@ pub struct Strike {
     pub supported_units: Vec<CurrencyUnit>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ClosedLoopType {
+    /// Internal payments only (payment hashes registered by this mint)
+    #[default]
+    Internal,
+}
+
+impl std::str::FromStr for ClosedLoopType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "internal" => Ok(ClosedLoopType::Internal),
+            _ => Err(format!("Unknown closed loop type: {s}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClosedLoop {
+    /// Type of closed loop validation
+    #[serde(default)]
+    pub closed_loop_type: ClosedLoopType,
+    /// Valid destination name to display in error messages
+    pub valid_destination_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Agicash {
+    /// Closed loop payment configuration
+    /// If present, closed loop payments are enabled
+    pub closed_loop: Option<ClosedLoop>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum DatabaseEngine {
@@ -587,6 +622,7 @@ pub struct Settings {
     pub prometheus: Option<Prometheus>,
     #[cfg(feature = "strike")]
     pub strike: Option<Strike>,
+    pub agicash: Option<Agicash>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

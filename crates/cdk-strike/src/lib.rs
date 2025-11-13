@@ -12,6 +12,7 @@ use std::time::Duration;
 use anyhow::{anyhow, bail};
 use async_trait::async_trait;
 use axum::Router;
+use cdk_agicash::{ClosedLoopConfig, ClosedLoopManager};
 use cdk_common::amount::Amount;
 use cdk_common::database::mint::DynMintKVStore;
 use cdk_common::nuts::{CurrencyUnit, MeltQuoteState};
@@ -88,6 +89,7 @@ pub struct Strike {
     pending_invoices: Arc<Mutex<HashMap<String, u64>>>,
     webhook_mode_active: Arc<AtomicBool>,
     kv_store: DynMintKVStore,
+    closed_loop: Option<ClosedLoopManager>,
 }
 
 impl std::fmt::Debug for Strike {
@@ -121,6 +123,7 @@ impl Strike {
         api_key: String,
         unit: CurrencyUnit,
         webhook_url: String,
+        closed_loop_config: Option<ClosedLoopConfig>,
         kv_store: DynMintKVStore,
     ) -> Result<Self, Error> {
         let strike_api = StrikeApi::new(&api_key, None).map_err(Error::from)?;
@@ -128,6 +131,9 @@ impl Strike {
         // Create broadcast channel for payment events (webhook notifications)
         let (sender, receiver) = tokio::sync::broadcast::channel::<String>(1000);
         let receiver = Arc::new(receiver);
+
+        let closed_loop =
+            closed_loop_config.map(|config| ClosedLoopManager::new(kv_store.clone(), config));
 
         Ok(Self {
             strike_api,
@@ -140,6 +146,7 @@ impl Strike {
             pending_invoices: Arc::new(Mutex::new(HashMap::new())),
             webhook_mode_active: Arc::new(AtomicBool::new(false)),
             kv_store,
+            closed_loop,
         })
     }
 
@@ -588,7 +595,13 @@ impl MintPayment for Strike {
         let correlation_id = extract_correlation_id(&description);
         let source_currency = to_strike_currency(unit)?;
 
-        // Check for internal invoice first
+        if let Some(ref closed_loop) = self.closed_loop {
+            let payment_hash = bolt11.payment_hash().to_string();
+            closed_loop
+                .validate_payment(&payment_hash, Some(&bolt11))
+                .await?;
+        }
+
         if let Some(correlation_id) = correlation_id {
             if let Ok(internal_invoice) =
                 self.lookup_invoice_by_correlation_id(correlation_id).await
@@ -781,6 +794,17 @@ impl MintPayment for Strike {
         if !self.webhook_mode_active.load(Ordering::SeqCst) {
             let mut pending_invoices = self.pending_invoices.lock().await;
             pending_invoices.insert(create_invoice_response.invoice_id.clone(), time_now);
+        }
+
+        if let Some(ref closed_loop) = self.closed_loop {
+            // Only register payment if the closed loop type is Internal
+            if closed_loop.is_internal() {
+                let payment_hash = request.payment_hash().to_string();
+                let expiry_secs = quote.expiration_in_sec;
+                closed_loop
+                    .register_payment(payment_hash, expiry_secs)
+                    .await?;
+            }
         }
 
         Ok(CreateIncomingPaymentResponse {
@@ -1436,6 +1460,7 @@ mod tests {
             "test_api_key".to_string(),
             CurrencyUnit::Sat,
             "http://localhost:3000/webhook".to_string(),
+            None,
             kv_store,
         )
         .await;
@@ -1453,6 +1478,7 @@ mod tests {
             "test_api_key".to_string(),
             CurrencyUnit::Sat,
             "http://localhost:3000/webhook".to_string(),
+            None,
             kv_store,
         )
         .await

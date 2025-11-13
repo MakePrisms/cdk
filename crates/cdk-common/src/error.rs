@@ -116,6 +116,9 @@ pub enum Error {
     /// Could not parse invoice (bolt11 or bolt12)
     #[error("Could not parse invoice")]
     InvalidInvoice,
+    /// Invalid payment destination
+    #[error("This ecash can only be spent at {0}")]
+    InvalidDestination(String),
 
     /// BIP353 address parsing error
     #[error("Failed to parse BIP353 address: {0}")]
@@ -793,6 +796,7 @@ impl From<ErrorResponse> for Error {
             ErrorCode::QuoteExpired => Self::ExpiredQuote(0, 0),
             ErrorCode::WitnessMissingOrInvalid => Self::SignatureMissingOrInvalid,
             ErrorCode::PubkeyRequired => Self::PubkeyRequired,
+            ErrorCode::InvalidDestination => Self::InvalidDestination,
             // 30xxx - Clear auth errors
             ErrorCode::ClearAuthRequired => Self::ClearAuthRequired,
             ErrorCode::ClearAuthFailed => Self::ClearAuthFailed,
@@ -867,6 +871,8 @@ pub enum ErrorCode {
     WitnessMissingOrInvalid,
     /// Pubkey required for mint quote (20009)
     PubkeyRequired,
+    /// Invalid payment destination (20232)
+    InvalidDestination,
 
     // 30xxx - Clear auth errors
     /// Endpoint requires clear auth (30001)
@@ -921,6 +927,7 @@ impl ErrorCode {
             20007 => Self::QuoteExpired,
             20008 => Self::WitnessMissingOrInvalid,
             20009 => Self::PubkeyRequired,
+            20232 => Self::InvalidDestination,
             // 30xxx - Clear auth errors
             30001 => Self::ClearAuthRequired,
             30002 => Self::ClearAuthFailed,
@@ -965,6 +972,7 @@ impl ErrorCode {
             Self::QuoteExpired => 20007,
             Self::WitnessMissingOrInvalid => 20008,
             Self::PubkeyRequired => 20009,
+            Self::InvalidDestination => 20232,
             // 30xxx - Clear auth errors
             Self::ClearAuthRequired => 30001,
             Self::ClearAuthFailed => 30002,

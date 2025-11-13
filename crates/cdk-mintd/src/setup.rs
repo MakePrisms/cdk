@@ -374,15 +374,30 @@ impl config::Strike {
         kv_store: cdk_common::database::mint::DynMintKVStore,
     ) -> anyhow::Result<(cdk_strike::Strike, axum::Router)> {
         use cdk::mint_url::MintUrl;
+        use cdk_agicash::ClosedLoopConfig;
 
         let webhook_endpoint = format!("/webhook/strike/{}/invoice", unit);
         let mint_url: MintUrl = settings.info.url.parse()?;
         let webhook_url = mint_url.join(&webhook_endpoint)?;
 
+        let closed_loop_config = settings
+            .agicash
+            .as_ref()
+            .and_then(|ac| ac.closed_loop.as_ref())
+            .map(|cl| {
+                use crate::config::ClosedLoopType;
+                match cl.closed_loop_type {
+                    ClosedLoopType::Internal => {
+                        ClosedLoopConfig::internal(&cl.valid_destination_name)
+                    }
+                }
+            });
+
         let strike = cdk_strike::Strike::new(
             self.api_key.clone(),
             unit,
             webhook_url.to_string(),
+            closed_loop_config,
             kv_store,
         )
         .await?;

@@ -300,6 +300,7 @@ fn create_ldk_settings(
         prometheus: None,
         auth: None,
         strike: None,
+        agicash: None,
     }
 }
 

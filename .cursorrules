@@ -1,0 +1,212 @@
+# CDK Configuration Guide
+
+## Adding New Environment Variable Configurations
+
+This guide describes the process for adding new configuration options to cdk-mintd that can be set via both TOML config files and environment variables.
+
+### Overview
+
+The CDK configuration system has a hierarchical structure:
+1. **Config Struct** (`crates/cdk-mintd/src/config.rs`) - Defines the configuration structure
+2. **Example Config** (`crates/cdk-mintd/example.config.toml`) - Provides documentation and examples
+3. **Environment Variables** (`crates/cdk-mintd/src/env_vars/`) - Allows runtime override via env vars
+4. **Setup Logic** (`crates/cdk-mintd/src/setup.rs`) - Uses config to initialize components
+
+### Step-by-Step Process
+
+#### 1. Define Configuration Structure (`config.rs`)
+
+Add your configuration struct with proper documentation:
+
+```rust
+// For enum-based options (e.g., closed loop type)
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum MyConfigType {
+    #[default]
+    OptionA,
+    OptionB,
+}
+
+// Implement FromStr for string parsing if applicable
+impl std::str::FromStr for MyConfigType {
+    type Err = String;
+    
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "option-a" => Ok(MyConfigType::OptionA),
+            "option-b" => Ok(MyConfigType::OptionB),
+            _ => Err(format!("Unknown type: {s}")),
+        }
+    }
+}
+
+// Main configuration struct
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MyFeatureConfig {
+    /// Documentation for field1
+    pub field1: String,
+    /// Optional field with default
+    #[serde(default)]
+    pub field2: MyConfigType,
+    /// Optional fields use Option<T>
+    pub optional_field: Option<String>,
+}
+
+// Add to parent config struct if applicable
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MyParentConfig {
+    /// Sub-configuration (Optional means feature is disabled when None)
+    pub my_feature: Option<MyFeatureConfig>,
+}
+
+// Add to Settings struct
+pub struct Settings {
+    // ... existing fields ...
+    pub my_parent_config: Option<MyParentConfig>,
+}
+```
+
+**Key Patterns:**
+- Use `#[serde(default)]` for fields with default values
+- Use `Option<T>` for truly optional fields
+- Use `#[serde(rename_all = "lowercase")]` for enums to match TOML conventions
+- Implement `FromStr` for enum types to enable string parsing
+- Document all fields with `///` comments
+
+#### 2. Update Example Configuration (`example.config.toml`)
+
+Add commented examples showing all options:
+
+```toml
+# [my_parent_config.my_feature]
+# Description of what this feature does
+# When configured, this enables XYZ functionality
+#
+# Option 1: Basic configuration
+# field1 = "value1"
+# field2 = "option-a"  # Default value
+#
+# Option 2: Advanced configuration with optional fields
+# field1 = "value2"
+# field2 = "option-b"
+# optional_field = "some_value"
+```
+
+**Guidelines:**
+- Use `#` to comment out all example configurations
+- Provide multiple examples showing different use cases
+- Document what each field does and valid values
+- Show both minimal and complete configurations
+
+#### 3. Create Environment Variables Module (`env_vars/my_feature.rs`)
+
+Create a new file in `crates/cdk-mintd/src/env_vars/`:
+
+```rust
+//! MyFeature environment variables
+
+use std::env;
+
+use crate::config::{MyParentConfig, MyFeatureConfig, MyConfigType};
+
+// Define environment variable constants
+// Use prefix: CDK_MINTD_<PARENT>_<FEATURE>_<FIELD>
+pub const ENV_MY_FEATURE_FIELD1: &str = "CDK_MINTD_MY_PARENT_MY_FEATURE_FIELD1";
+pub const ENV_MY_FEATURE_FIELD2: &str = "CDK_MINTD_MY_PARENT_MY_FEATURE_FIELD2";
+pub const ENV_MY_FEATURE_OPTIONAL: &str = "CDK_MINTD_MY_PARENT_MY_FEATURE_OPTIONAL";
+
+impl MyParentConfig {
+    pub fn from_env(mut self) -> Self {
+        // Check if any env vars are set to determine if feature should be enabled
+        let has_feature_env = env::var(ENV_MY_FEATURE_FIELD1).is_ok()
+            || env::var(ENV_MY_FEATURE_FIELD2).is_ok();
+
+        if has_feature_env {
+            let mut feature_config = self.my_feature.unwrap_or_else(|| MyFeatureConfig {
+                field1: String::new(),
+                field2: MyConfigType::default(),
+                optional_field: None,
+            });
+
+            // Parse each field from environment
+            if let Ok(field1) = env::var(ENV_MY_FEATURE_FIELD1) {
+                feature_config.field1 = field1;
+            }
+
+            if let Ok(field2_str) = env::var(ENV_MY_FEATURE_FIELD2) {
+                if let Ok(field2) = field2_str.parse() {
+                    feature_config.field2 = field2;
+                }
+            }
+
+            if let Ok(optional) = env::var(ENV_MY_FEATURE_OPTIONAL) {
+                feature_config.optional_field = Some(optional);
+            }
+
+            self.my_feature = Some(feature_config);
+        }
+
+        self
+    }
+}
+```
+
+**Key Patterns:**
+- Env var naming: `CDK_MINTD_<HIERARCHY>_<FIELD>`
+- Use uppercase with underscores
+- Check for presence of env vars before enabling optional features
+- Use `.parse()` for types implementing `FromStr`
+- Use `.unwrap_or_else()` or `.unwrap_or_default()` for defaults
+
+#### 4. Register Environment Variables Module (`env_vars/mod.rs`)
+
+Update the module registration:
+
+```rust
+// Add module declaration (alphabetically ordered)
+mod my_feature;
+
+// Add public export (alphabetically ordered)
+pub use my_feature::*;
+
+// In Settings::from_env() implementation, add:
+impl Settings {
+    pub fn from_env(&mut self) -> Result<Self> {
+        // ... existing code ...
+        
+        // Parse my_feature configuration from environment variables
+        self.my_parent_config = Some(
+            self.my_parent_config
+                .clone()
+                .unwrap_or_default()
+                .from_env()
+        );
+        
+        // ... rest of code ...
+    }
+}
+```
+
+**Integration Points:**
+- For feature-gated configs, wrap in `#[cfg(feature = "...")]`
+- For backend-specific configs, add inside the `match self.ln.ln_backend { ... }` block
+- For general configs, add before or after other general config parsing
+
+
+### Checklist
+
+When adding new configuration, ensure:
+
+- [ ] Config struct added to `config.rs` with documentation
+- [ ] Enum implements `FromStr` if applicable
+- [ ] Added to parent struct in `config.rs`
+- [ ] Added to `Settings` struct in `config.rs`
+- [ ] Example added to `example.config.toml`
+- [ ] Environment variables file created in `env_vars/`
+- [ ] Module registered in `env_vars/mod.rs`
+- [ ] `from_env()` implementation added
+- [ ] Called in `Settings::from_env()`
+- [ ] Compiled and tested with both config file and env vars
+- [ ] No linter errors
+

@@ -70,6 +70,9 @@ pub enum Error {
     /// Invalid hash
     #[error("Invalid hash")]
     InvalidHash,
+    /// Invalid destination
+    #[error("This ecash can only be spent at {0}")]
+    InvalidDestination(String),
     /// Custom
     #[error("`{0}`")]
     Custom(String),
@@ -78,6 +81,20 @@ pub enum Error {
 impl From<Infallible> for Error {
     fn from(_: Infallible) -> Self {
         unreachable!("Infallible cannot be constructed")
+    }
+}
+
+impl From<crate::Error> for Error {
+    fn from(err: crate::Error) -> Self {
+        match err {
+            crate::Error::InvalidDestination(msg) => Self::InvalidDestination(msg),
+            crate::Error::UnsupportedUnit => Self::UnsupportedUnit,
+            crate::Error::AmountOverflow => Self::Amount(crate::amount::Error::AmountOverflow),
+            crate::Error::Database(db_err) => {
+                Self::Anyhow(anyhow::anyhow!("Database error: {}", db_err))
+            }
+            other => Self::Custom(other.to_string()),
+        }
     }
 }
 

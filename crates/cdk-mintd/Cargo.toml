@@ -77,5 +77,6 @@ workspace = true
 
 # Agicash Fork additions
 cdk-strike = { workspace = true, optional = true }
+cdk-agicash.workspace = true
 
 [build-dependencies]

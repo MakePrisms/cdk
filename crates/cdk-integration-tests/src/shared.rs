@@ -239,6 +239,7 @@ pub fn create_fake_wallet_settings(
         auth: None,
         prometheus: Some(Default::default()),
         strike: None,
+        agicash: None,
     }
 }
 
@@ -290,6 +291,7 @@ pub fn create_cln_settings(
         auth: None,
         prometheus: Some(Default::default()),
         strike: None,
+        agicash: None,
     }
 }
 
@@ -339,5 +341,6 @@ pub fn create_lnd_settings(
         auth: None,
         prometheus: Some(Default::default()),
         strike: None,
+        agicash: None,
     }
 }

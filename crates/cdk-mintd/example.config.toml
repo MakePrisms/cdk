@@ -179,6 +179,14 @@ max_delay_time = 3
 # api_key = "your_strike_api_key_here"
 # supported_units = ["sat", "usd"]
 
+# [agicash.closed_loop]
+# Closed loop payment configuration
+# When configured, only allows melting to invoices that match the specified criteria
+#
+# Option 1: Internal closed loop (only invoices created by this mint)
+# closed_loop_type = "internal"
+# valid_destination_name = "this mint"
+
 # [auth]
 # Set to true to enable authentication features (defaults to false)
 # auth_enabled = false

@@ -166,7 +166,7 @@ impl Mint {
                 OutgoingPaymentOptions::Bolt11(Box::new(bolt11)),
             )
             .await
-            .map_err(|err| {
+            .map_err(|err: cdk_common::payment::Error| {
                 tracing::error!(
                     "Could not get payment quote for mint quote, {} bolt11, {}",
                     unit,
@@ -269,7 +269,7 @@ impl Mint {
                 OutgoingPaymentOptions::Bolt12(Box::new(outgoing_payment_options)),
             )
             .await
-            .map_err(|err| {
+            .map_err(|err: cdk_common::payment::Error| {
                 tracing::error!(
                     "Could not get payment quote for mint quote, {} bolt12, {}",
                     unit,
