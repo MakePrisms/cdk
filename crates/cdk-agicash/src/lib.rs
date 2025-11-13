@@ -9,6 +9,13 @@
 #![warn(rustdoc::bare_urls)]
 
 pub mod closed_loop_manager;
+pub mod square;
 
 // Re-export main types
 pub use closed_loop_manager::{ClosedLoopConfig, ClosedLoopManager, ClosedLoopType, PaymentData};
+// Re-export Square types
+pub use square::{
+    Error as SquareError, LightningDetails, ListMerchantsResponse, ListPaymentsParams,
+    ListPaymentsResponse, Merchant, Money, OAuthCredentials, Payment, PaymentBrand, Square,
+    SquareConfig, WalletDetails, DEFAULT_SQUARE_PAYMENT_EXPIRY,
+};

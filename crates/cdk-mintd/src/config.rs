@@ -441,6 +441,8 @@ pub enum ClosedLoopType {
     /// Internal payments only (payment hashes registered by this mint)
     #[default]
     Internal,
+    /// Square payment validation - validates the invoice is a Square Lightning payment
+    Square,
 }
 
 impl std::str::FromStr for ClosedLoopType {
@@ -449,6 +451,7 @@ impl std::str::FromStr for ClosedLoopType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "internal" => Ok(ClosedLoopType::Internal),
+            "square" => Ok(ClosedLoopType::Square),
             _ => Err(format!("Unknown closed loop type: {s}")),
         }
     }
@@ -461,6 +464,9 @@ pub struct ClosedLoop {
     pub closed_loop_type: ClosedLoopType,
     /// Valid destination name to display in error messages
     pub valid_destination_name: String,
+    /// Square configuration (required when closed_loop_type is "square")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub square: Option<cdk_agicash::square::SquareConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -186,6 +186,22 @@ max_delay_time = 3
 # Option 1: Internal closed loop (only invoices created by this mint)
 # closed_loop_type = "internal"
 # valid_destination_name = "this mint"
+#
+# Option 2: Square closed loop (only pay invoices created by the Square merchant)
+# closed_loop_type = "square"
+# valid_destination_name = "Square"
+# [agicash.closed_loop.square]
+# Square API token (for webhook management)
+# api_token = "your-square-api-token"
+# Square environment: "SANDBOX" or "PRODUCTION"
+# environment = "SANDBOX"
+# PostgreSQL database URL for OAuth credentials
+# Format: postgresql://user:password@host:port/database?sslmode=require
+# database_url = "postgresql://user:password@localhost:5432/square_oauth?sslmode=require"
+# Enable webhook mode (default: true)
+# webhook_enabled = true
+# Payment expiry time in seconds (how far back to sync payments, default: 300)
+# payment_expiry = 300
 
 # [auth]
 # Set to true to enable authentication features (defaults to false)

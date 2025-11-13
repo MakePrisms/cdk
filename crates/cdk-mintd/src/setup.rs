@@ -384,12 +384,25 @@ impl config::Strike {
             .agicash
             .as_ref()
             .and_then(|ac| ac.closed_loop.as_ref())
-            .map(|cl| {
+            .and_then(|cl| {
                 use crate::config::ClosedLoopType;
                 match cl.closed_loop_type {
                     ClosedLoopType::Internal => {
-                        ClosedLoopConfig::internal(&cl.valid_destination_name)
+                        Some(ClosedLoopConfig::internal(&cl.valid_destination_name))
                     }
+                    ClosedLoopType::Square => cl.square.as_ref().and_then(|square_config| {
+                        cdk_agicash::square::Square::from_config(
+                            square_config.clone(),
+                            Some(webhook_url.to_string()),
+                            kv_store.clone(),
+                        )
+                        .map_err(|e| {
+                            tracing::error!("Failed to create Square instance: {}", e);
+                            e
+                        })
+                        .ok()
+                        .map(|square| ClosedLoopConfig::square(square, &cl.valid_destination_name))
+                    }),
                 }
             });
 

@@ -132,8 +132,17 @@ impl Strike {
         let (sender, receiver) = tokio::sync::broadcast::channel::<String>(1000);
         let receiver = Arc::new(receiver);
 
-        let closed_loop =
-            closed_loop_config.map(|config| ClosedLoopManager::new(kv_store.clone(), config));
+        let closed_loop = if let Some(config) = closed_loop_config {
+            Some(
+                ClosedLoopManager::new(kv_store.clone(), config)
+                    .await
+                    .map_err(|e| {
+                        Error::Anyhow(anyhow!("Failed to create closed loop manager: {}", e))
+                    })?,
+            )
+        } else {
+            None
+        };
 
         Ok(Self {
             strike_api,

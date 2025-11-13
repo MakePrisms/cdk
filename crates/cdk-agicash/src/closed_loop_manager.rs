@@ -15,6 +15,8 @@ use tokio::task::JoinHandle;
 use tokio::time::MissedTickBehavior;
 use tokio_util::sync::CancellationToken;
 
+use crate::square::Square;
+
 /// Primary namespace for closed loop payment data in KV store
 const CLOSED_LOOP_PRIMARY_NAMESPACE: &str = "cdk_closed_loop";
 /// Secondary namespace for internal payment identifiers in KV store
@@ -24,12 +26,24 @@ const CLOSED_LOOP_SECONDARY_NAMESPACE: &str = "internal_payments";
 const CLEANUP_PERIOD: Duration = Duration::from_secs(3600);
 
 /// Type of closed loop validation
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum ClosedLoopType {
     /// Internal payments only - validates against registered payment IDs in KV store
     Internal,
     /// Node pubkey validation - validates the invoice is from a specific node
     NodePubkey(String),
+    /// Square payment validation - validates the invoice is a Square Lightning payment
+    Square(Square),
+}
+
+impl std::fmt::Debug for ClosedLoopType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Internal => write!(f, "Internal"),
+            Self::NodePubkey(pubkey) => write!(f, "NodePubkey({})", pubkey),
+            Self::Square(_) => write!(f, "Square"),
+        }
+    }
 }
 
 /// Closed loop configuration
@@ -57,6 +71,14 @@ impl ClosedLoopConfig {
     ) -> Self {
         Self {
             loop_type: ClosedLoopType::NodePubkey(node_pubkey.into()),
+            valid_destination_name: valid_destination_name.into(),
+        }
+    }
+
+    /// Create a new closed loop config for Square payment validation
+    pub fn square(square: Square, valid_destination_name: impl Into<String>) -> Self {
+        Self {
+            loop_type: ClosedLoopType::Square(square),
             valid_destination_name: valid_destination_name.into(),
         }
     }
@@ -173,7 +195,18 @@ impl ClosedLoopManager {
     /// Create a new closed loop manager
     ///
     /// Automatically starts a background cleanup task that runs every hour to remove expired payments.
-    pub fn new(kv_store: DynMintKVStore, config: ClosedLoopConfig) -> Self {
+    /// If the loop type is Square, starts the Square sync system.
+    pub async fn new(
+        kv_store: DynMintKVStore,
+        config: ClosedLoopConfig,
+    ) -> Result<Self, cdk_common::error::Error> {
+        // Start Square if configured
+        if let ClosedLoopType::Square(ref square) = config.loop_type {
+            square.start().await.map_err(|e| {
+                cdk_common::error::Error::SendError(format!("Failed to start Square: {}", e))
+            })?;
+        }
+
         let manager = Self {
             inner: Arc::new(ClosedLoopManagerInner {
                 kv_store,
@@ -184,7 +217,7 @@ impl ClosedLoopManager {
 
         manager.inner.cleanup.start(manager.clone());
 
-        manager
+        Ok(manager)
     }
 
     /// Get the valid destination name from the config
@@ -232,6 +265,7 @@ impl ClosedLoopManager {
     ///
     /// For `Internal` type: checks if the payment_id exists in the KV store.
     /// For `NodePubkey` type: validates the invoice is from the configured node pubkey.
+    /// For `Square` type: validates the invoice exists in Square's system.
     ///
     /// Returns `Ok(())` if valid, throws `InvalidDestination` error with destination name if not found.
     pub async fn validate_payment(
@@ -257,7 +291,7 @@ impl ClosedLoopManager {
                 {
                     Ok(Some(_)) => Ok(()),
                     Ok(None) => Err(Error::InvalidDestination(valid_dest.clone())),
-                    Err(e) => Err(Error::Database(e.into())),
+                    Err(e) => Err(Error::Database(e)),
                 }
             }
             ClosedLoopType::NodePubkey(expected_pubkey) => {
@@ -270,6 +304,21 @@ impl ClosedLoopManager {
                     .unwrap_or_else(|| invoice.recover_payee_pub_key().to_string());
 
                 if payee_pubkey != *expected_pubkey {
+                    return Err(Error::InvalidDestination(valid_dest.clone()));
+                }
+
+                Ok(())
+            }
+            ClosedLoopType::Square(square) => {
+                let invoice =
+                    bolt11.ok_or_else(|| Error::InvalidDestination(valid_dest.clone()))?;
+
+                let exists = square
+                    .check_invoice_exists(invoice)
+                    .await
+                    .map_err(|e| Error::RecvError(format!("Square validation error: {}", e)))?;
+
+                if !exists {
                     return Err(Error::InvalidDestination(valid_dest.clone()));
                 }
 
@@ -555,7 +604,9 @@ mod tests {
     async fn test_register_payment() {
         let kv_store = create_mock_kv_store();
         let config = ClosedLoopConfig::internal("test-mint");
-        let manager = ClosedLoopManager::new(kv_store.clone(), config);
+        let manager = ClosedLoopManager::new(kv_store.clone(), config)
+            .await
+            .unwrap();
 
         // Should write to the store
         let result = manager.register_payment("payment_123", 3600).await;
@@ -577,7 +628,9 @@ mod tests {
     async fn test_register_payment_with_custom_expiry() {
         let kv_store = create_mock_kv_store();
         let config = ClosedLoopConfig::internal("test-mint");
-        let manager = ClosedLoopManager::new(kv_store.clone(), config);
+        let manager = ClosedLoopManager::new(kv_store.clone(), config)
+            .await
+            .unwrap();
 
         // Register payment with 60 second expiry
         let result = manager.register_payment("payment_456", 60).await;
@@ -604,7 +657,9 @@ mod tests {
     async fn test_register_payment_with_long_expiry() {
         let kv_store = create_mock_kv_store();
         let config = ClosedLoopConfig::internal("test-mint");
-        let manager = ClosedLoopManager::new(kv_store.clone(), config);
+        let manager = ClosedLoopManager::new(kv_store.clone(), config)
+            .await
+            .unwrap();
 
         // Register payment with very long expiry (1 year)
         let one_year_secs = 365 * 24 * 60 * 60;
@@ -630,7 +685,9 @@ mod tests {
     async fn test_remove_expired_payments() {
         let kv_store = create_mock_kv_store();
         let config = ClosedLoopConfig::internal("test-mint");
-        let manager = ClosedLoopManager::new(kv_store.clone(), config);
+        let manager = ClosedLoopManager::new(kv_store.clone(), config)
+            .await
+            .unwrap();
 
         // Register payment with 0 second expiry (already expired)
         manager

@@ -17,4 +17,22 @@ parking_lot = "0.12.5"
 tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+uuid.workspace = true
+axum.workspace = true
+futures.workspace = true
+reqwest.workspace = true
+bitcoin.workspace = true
+rustls.workspace = true
+
+# Square payment integration
+squareup = { version = "2.13.2", default-features = false, features = ["rustls-tls"] }
+
+# PostgreSQL database for OAuth credentials
+tokio-postgres = "0.7.13"
+postgres-native-tls = "0.5.1"
+native-tls = "0.2"
 
