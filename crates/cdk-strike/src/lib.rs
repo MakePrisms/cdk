@@ -911,6 +911,7 @@ impl MintPayment for Strike {
             request_lookup_id: PaymentIdentifier::CustomId(create_invoice_response.invoice_id),
             request: quote.ln_invoice,
             expiry,
+            fee: Some(fee_amount.into()),
         })
     }
 

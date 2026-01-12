@@ -476,6 +476,10 @@ pub struct MintQuote {
     /// that need to be persisted. Use [`Self::take_changes`] to extract pending
     /// changes for persistence.
     changes: Option<MintQuoteChange>,
+    /// Fee charged by the mint that is added to the requested amount
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fee: Option<Amount>,
 }
 
 impl MintQuote {
@@ -496,6 +500,7 @@ impl MintQuote {
         payments: Vec<IncomingPayment>,
         issuance: Vec<Issuance>,
         extra_json: Option<serde_json::Value>,
+        fee: Option<Amount>,
     ) -> Self {
         let id = id.unwrap_or_else(QuoteId::new_uuid);
 
@@ -515,6 +520,7 @@ impl MintQuote {
             issuance,
             extra_json,
             changes: None,
+            fee,
         }
     }
 
@@ -909,6 +915,7 @@ impl From<MintQuote> for MintQuoteBolt11Response<QuoteId> {
             pubkey: mint_quote.pubkey,
             amount: mint_quote.amount.map(Into::into),
             unit: Some(mint_quote.unit.clone()),
+            fee: mint_quote.fee.unwrap_or(Amount::ZERO),
         }
     }
 }

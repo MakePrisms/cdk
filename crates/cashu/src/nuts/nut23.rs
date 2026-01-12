@@ -102,6 +102,9 @@ pub struct MintQuoteBolt11Response<Q> {
     /// NUT-19 Pubkey
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pubkey: Option<PublicKey>,
+    /// Fee charged by the mint that is added to the requested amount
+    #[serde(default)]
+    pub fee: Amount,
 }
 impl<Q: ToString> MintQuoteBolt11Response<Q> {
     /// Convert the MintQuote with a quote type Q to a String
@@ -114,6 +117,7 @@ impl<Q: ToString> MintQuoteBolt11Response<Q> {
             pubkey: self.pubkey,
             amount: self.amount,
             unit: self.unit.clone(),
+            fee: self.fee,
         }
     }
 }
@@ -129,6 +133,7 @@ impl From<MintQuoteBolt11Response<QuoteId>> for MintQuoteBolt11Response<String> 
             pubkey: value.pubkey,
             amount: value.amount,
             unit: value.unit.clone(),
+            fee: value.fee,
         }
     }
 }

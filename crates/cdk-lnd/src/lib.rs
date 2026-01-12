@@ -633,6 +633,7 @@ impl MintPayment for Lnd {
                     request: bolt11.to_string(),
                     expiry: unix_expiry,
                     extra_json: None,
+                    fee: None,
                 })
             }
             IncomingPaymentOptions::Bolt12(_) => {

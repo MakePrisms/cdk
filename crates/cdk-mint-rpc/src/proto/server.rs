@@ -705,6 +705,7 @@ impl CdkMint for MintRPCServer {
                     vec![],                               // blinded_messages
                     vec![],                               // payment_ids
                     None,                                 // extra_json
+                    None,
                 );
 
                 let mint_store = self.mint.localstore();

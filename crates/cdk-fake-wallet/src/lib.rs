@@ -777,6 +777,7 @@ impl MintPayment for FakeWallet {
             request,
             expiry,
             extra_json: None,
+            fee: None,
         })
     }
 

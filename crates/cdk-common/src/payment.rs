@@ -444,6 +444,11 @@ pub struct CreateIncomingPaymentResponse {
     /// custom payment methods to include additional data without nesting.
     #[serde(flatten, default)]
     pub extra_json: Option<serde_json::Value>,
+    /// Fee charged by the payment processor. The request amount
+    /// is the amount requested by the user plus this fee.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fee: Option<Amount>,
 }
 
 /// Payment response

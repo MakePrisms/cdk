@@ -515,6 +515,7 @@ impl MintPayment for CdkLdkNode {
                     request: payment.to_string(),
                     expiry: Some(unix_time() + time),
                     extra_json: None,
+                    fee: None,
                 })
             }
             IncomingPaymentOptions::Bolt12(bolt12_options) => {
@@ -555,6 +556,7 @@ impl MintPayment for CdkLdkNode {
                     request: offer.to_string(),
                     expiry: time.map(|a| a as u64),
                     extra_json: None,
+                    fee: None,
                 })
             }
             cdk_common::payment::IncomingPaymentOptions::Custom(_) => {

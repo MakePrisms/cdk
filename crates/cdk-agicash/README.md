@@ -4,6 +4,22 @@ Extended CDK functionality for Agicash-specific features beyond the core Cashu p
 
 ## Protocol Extensions
 
+### NUT04 Mint Quote Fee Extension
+
+Extends mint quote responses (POST `/v1/mint/quote/bolt11`) with an optional `fee` field:
+
+```json
+{
+  "quote": "quote_id_123",
+  "request": "lnbc...",
+  "paid": false,
+  "expiry": 1234567890,
+  "fee": 30
+}
+```
+
+- **`fee`**: Optional deposit fee in the quote's unit
+
 ### NUT06 Agicash Field
 
 Extends mint info with Agicash-specific settings advertised via the `/v1/info` endpoint:

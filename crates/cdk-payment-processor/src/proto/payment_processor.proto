@@ -104,6 +104,7 @@ message CreatePaymentResponse {
   // Extra payment-method-specific fields as JSON string
   // For custom payment methods, these fields are flattened into the response
   optional string extra_json = 4;
+  optional uint64 fee = 4;
 }
 
 message Mpp {

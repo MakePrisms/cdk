@@ -129,6 +129,7 @@ impl From<CreateIncomingPaymentResponse> for CreatePaymentResponse {
             request: value.request,
             expiry: value.expiry,
             extra_json: None,
+            fee: value.fee.map(|f| f.into()),
         }
     }
 }
@@ -148,6 +149,7 @@ impl TryFrom<CreatePaymentResponse> for CreateIncomingPaymentResponse {
                 serde_json::from_str(value.extra_json.unwrap_or_default().as_str())
                     .unwrap_or_default(),
             ),
+            fee: value.fee.map(|f| f.into()),
         })
     }
 }

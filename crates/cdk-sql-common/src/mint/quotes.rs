@@ -127,7 +127,8 @@ where
             amount_paid,
             amount_issued,
             payment_method,
-            request_lookup_id_kind
+            request_lookup_id_kind,
+            fee
         FROM
             mint_quote
         WHERE id = :id
@@ -166,7 +167,8 @@ where
             amount_paid,
             amount_issued,
             payment_method,
-            request_lookup_id_kind
+            request_lookup_id_kind,
+            fee
         FROM
             mint_quote
         WHERE request = :request
@@ -214,7 +216,8 @@ where
             amount_paid,
             amount_issued,
             payment_method,
-            request_lookup_id_kind
+            request_lookup_id_kind,
+            fee
         FROM
             mint_quote
         WHERE request_lookup_id = :request_lookup_id
@@ -405,7 +408,7 @@ fn sql_row_to_mint_quote(
     unpack_into!(
         let (
             id, amount, unit, request, expiry, request_lookup_id,
-            pubkey, created_time, amount_paid, amount_issued, payment_method, request_lookup_id_kind
+            pubkey, created_time, amount_paid, amount_issued, payment_method, request_lookup_id_kind, fee
         ) = row
     );
 
@@ -427,6 +430,7 @@ fn sql_row_to_mint_quote(
     let amount_issued: u64 = column_as_number!(amount_issued);
     let payment_method = column_as_string!(payment_method, PaymentMethod::from_str);
     let unit = column_as_string!(unit, CurrencyUnit::from_str);
+    let fee: Option<u64> = column_as_nullable_number!(fee);
 
     Ok(MintQuote::new(
         Some(QuoteId::from_str(&id)?),
@@ -444,6 +448,7 @@ fn sql_row_to_mint_quote(
         payments,
         issueances,
         None,
+        fee.map(Amount::from),
     ))
 }
 
@@ -811,10 +816,10 @@ where
         query(
             r#"
                 INSERT INTO mint_quote (
-                id, amount, unit, request, expiry, request_lookup_id, pubkey, created_time, payment_method, request_lookup_id_kind
+                id, amount, unit, request, expiry, request_lookup_id, pubkey, created_time, payment_method, request_lookup_id_kind, fee
                 )
                 VALUES (
-                :id, :amount, :unit, :request, :expiry, :request_lookup_id, :pubkey, :created_time, :payment_method, :request_lookup_id_kind
+                :id, :amount, :unit, :request, :expiry, :request_lookup_id, :pubkey, :created_time, :payment_method, :request_lookup_id_kind, :fee
                 )
             "#,
         )?
@@ -831,6 +836,7 @@ where
         .bind("created_time", quote.created_time as i64)
         .bind("payment_method", quote.payment_method.to_string())
         .bind("request_lookup_id_kind", quote.request_lookup_id.kind())
+        .bind("fee", quote.fee.and_then(|f| f.to_i64()))
         .execute(&self.inner)
         .await?;
 
@@ -1063,7 +1069,8 @@ where
                 amount_paid,
                 amount_issued,
                 payment_method,
-                request_lookup_id_kind
+                request_lookup_id_kind,
+                fee
             FROM
                 mint_quote
             "#,

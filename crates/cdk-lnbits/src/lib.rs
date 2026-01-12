@@ -382,6 +382,7 @@ impl MintPayment for LNbits {
                     request: request.to_string(),
                     expiry,
                     extra_json: None,
+                    fee: None,
                 })
             }
             IncomingPaymentOptions::Bolt12(_) => {

@@ -173,6 +173,7 @@ impl From<MintQuoteResponse> for MintQuoteBolt11Response<String> {
                 pubkey: bolt11_response.pubkey,
                 amount: bolt11_response.amount,
                 unit: bolt11_response.unit,
+                fee: bolt11_response.fee,
             },
             _ => panic!("Expected Bolt11 response"),
         }
@@ -352,6 +353,7 @@ impl Mint {
                 vec![],
                 vec![],
                 Some(create_invoice_response.extra_json.unwrap_or_default()),
+                create_invoice_response.fee,
             );
 
             tracing::debug!(
