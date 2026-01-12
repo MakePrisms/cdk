@@ -9,13 +9,23 @@
 #![warn(rustdoc::bare_urls)]
 
 pub mod closed_loop_manager;
+pub mod fee;
+pub mod lnurl;
 pub mod square;
-
-// Re-export main types
-pub use closed_loop_manager::{ClosedLoopConfig, ClosedLoopManager, ClosedLoopType, PaymentData};
-// Re-export Square types
+pub mod supervisor;
+pub use closed_loop_manager::{
+    ClosedLoopConfig, ClosedLoopKind, ClosedLoopManager, ClosedLoopType, PaymentData,
+};
+pub use fee::{
+    BasisPointsFeeCalculator, DepositFeeConfig, FeeCalculator, FeeConfig, FeeError, FeeManager,
+    FeePayoutBackend, FeePayoutState, PendingFeePayout,
+};
+pub use lnurl::{
+    resolve_lightning_address, Error as LnUrlError, LnUrlCallbackResponse, LnUrlPayResponse,
+};
 pub use square::{
     Error as SquareError, LightningDetails, ListMerchantsResponse, ListPaymentsParams,
     ListPaymentsResponse, Merchant, Money, OAuthCredentials, Payment, PaymentBrand, Square,
     SquareConfig, WalletDetails, DEFAULT_SQUARE_PAYMENT_EXPIRY,
 };
+pub use supervisor::PeriodicSupervisor;

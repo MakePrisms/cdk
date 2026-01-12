@@ -6,7 +6,7 @@ authors = ["CDK Developers"]
 license.workspace = true
 homepage = "https://github.com/cashubtc/cdk"
 repository = "https://github.com/cashubtc/cdk.git"
-rust-version.workspace = true # MSRV
+rust-version.workspace = true                      # MSRV
 description = "CDK ln backend for Strike"
 readme = "README.md"
 
@@ -24,4 +24,4 @@ thiserror.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 axum.workspace = true
-strike-rs = { git = "https://github.com/gudnuf/strike-rs.git", rev = "eb59400365122f13e3dc074618f0b4251252e02a"}
+strike-rs = { git = "https://github.com/gudnuf/strike-rs.git", rev = "eb59400365122f13e3dc074618f0b4251252e02a" }

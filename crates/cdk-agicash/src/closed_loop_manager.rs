@@ -9,13 +9,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use cdk_common::database::mint::DynMintKVStore;
 use cdk_common::database::Error as DbError;
-use parking_lot::Mutex;
-use tokio::select;
-use tokio::task::JoinHandle;
-use tokio::time::MissedTickBehavior;
-use tokio_util::sync::CancellationToken;
+use serde::{Deserialize, Serialize};
 
 use crate::square::Square;
+use crate::supervisor::PeriodicSupervisor;
 
 /// Primary namespace for closed loop payment data in KV store
 const CLOSED_LOOP_PRIMARY_NAMESPACE: &str = "cdk_closed_loop";
@@ -25,9 +22,34 @@ const CLOSED_LOOP_SECONDARY_NAMESPACE: &str = "internal_payments";
 /// Cleanup period for expired payments (1 hour)
 const CLEANUP_PERIOD: Duration = Duration::from_secs(3600);
 
-/// Type of closed loop validation
-#[derive(Clone)]
+/// Configuration type for closed loop validation that can be serialized
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
 pub enum ClosedLoopType {
+    /// Internal payments only (payment hashes registered by this mint)
+    #[default]
+    Internal,
+    /// Square payment validation - validates the invoice is a Square Lightning payment
+    Square,
+}
+
+impl std::str::FromStr for ClosedLoopType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "internal" => Ok(ClosedLoopType::Internal),
+            "square" => Ok(ClosedLoopType::Square),
+            _ => Err(format!("Unknown closed loop type: {s}")),
+        }
+    }
+}
+
+/// Type of closed loop validation for runtime use
+/// Note: This enum contains non-serializable variants (Square).
+/// For configuration, use the ClosedLoopType enum in cdk-mintd config.
+#[derive(Clone)]
+pub enum ClosedLoopKind {
     /// Internal payments only - validates against registered payment IDs in KV store
     Internal,
     /// Node pubkey validation - validates the invoice is from a specific node
@@ -36,7 +58,7 @@ pub enum ClosedLoopType {
     Square(Square),
 }
 
-impl std::fmt::Debug for ClosedLoopType {
+impl std::fmt::Debug for ClosedLoopKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Internal => write!(f, "Internal"),
@@ -50,7 +72,7 @@ impl std::fmt::Debug for ClosedLoopType {
 #[derive(Debug, Clone)]
 pub struct ClosedLoopConfig {
     /// Type of closed loop validation
-    pub loop_type: ClosedLoopType,
+    pub loop_type: ClosedLoopKind,
     /// Valid destination name to display in error messages
     pub valid_destination_name: String,
 }
@@ -59,7 +81,7 @@ impl ClosedLoopConfig {
     /// Create a new closed loop config for internal payments
     pub fn internal(valid_destination_name: impl Into<String>) -> Self {
         Self {
-            loop_type: ClosedLoopType::Internal,
+            loop_type: ClosedLoopKind::Internal,
             valid_destination_name: valid_destination_name.into(),
         }
     }
@@ -70,7 +92,7 @@ impl ClosedLoopConfig {
         valid_destination_name: impl Into<String>,
     ) -> Self {
         Self {
-            loop_type: ClosedLoopType::NodePubkey(node_pubkey.into()),
+            loop_type: ClosedLoopKind::NodePubkey(node_pubkey.into()),
             valid_destination_name: valid_destination_name.into(),
         }
     }
@@ -78,7 +100,7 @@ impl ClosedLoopConfig {
     /// Create a new closed loop config for Square payment validation
     pub fn square(square: Square, valid_destination_name: impl Into<String>) -> Self {
         Self {
-            loop_type: ClosedLoopType::Square(square),
+            loop_type: ClosedLoopKind::Square(square),
             valid_destination_name: valid_destination_name.into(),
         }
     }
@@ -137,58 +159,7 @@ pub struct ClosedLoopManager {
 struct ClosedLoopManagerInner {
     kv_store: DynMintKVStore,
     config: ClosedLoopConfig,
-    cleanup: CleanupSupervisor,
-}
-
-struct CleanupSupervisor {
-    shutdown: CancellationToken,
-    handle: Mutex<Option<JoinHandle<()>>>,
-}
-
-impl CleanupSupervisor {
-    fn new() -> Self {
-        Self {
-            shutdown: CancellationToken::new(),
-            handle: Mutex::new(None),
-        }
-    }
-
-    fn start(&self, manager: ClosedLoopManager) {
-        let mut guard = self.handle.lock();
-        if guard.is_some() {
-            return;
-        }
-
-        let shutdown = self.shutdown.clone();
-        let task = tokio::spawn(async move {
-            run_expired_payment_cleanup(&manager).await;
-
-            let mut ticker = tokio::time::interval(CLEANUP_PERIOD);
-            ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-            loop {
-                select! {
-                    _ = shutdown.cancelled() => {
-                        break;
-                    }
-                    _ = ticker.tick() => {
-                        run_expired_payment_cleanup(&manager).await;
-                    }
-                }
-            }
-        });
-
-        *guard = Some(task);
-    }
-}
-
-impl Drop for CleanupSupervisor {
-    fn drop(&mut self) {
-        self.shutdown.cancel();
-        if let Some(handle) = self.handle.get_mut().take() {
-            handle.abort();
-        }
-    }
+    cleanup: PeriodicSupervisor,
 }
 
 impl ClosedLoopManager {
@@ -201,7 +172,7 @@ impl ClosedLoopManager {
         config: ClosedLoopConfig,
     ) -> Result<Self, cdk_common::error::Error> {
         // Start Square if configured
-        if let ClosedLoopType::Square(ref square) = config.loop_type {
+        if let ClosedLoopKind::Square(ref square) = config.loop_type {
             square.start().await.map_err(|e| {
                 cdk_common::error::Error::SendError(format!("Failed to start Square: {}", e))
             })?;
@@ -211,11 +182,20 @@ impl ClosedLoopManager {
             inner: Arc::new(ClosedLoopManagerInner {
                 kv_store,
                 config,
-                cleanup: CleanupSupervisor::new(),
+                cleanup: PeriodicSupervisor::new(),
             }),
         };
 
-        manager.inner.cleanup.start(manager.clone());
+        let weak_inner = Arc::downgrade(&manager.inner);
+        manager.inner.cleanup.start(CLEANUP_PERIOD, move || {
+            let weak_inner = weak_inner.clone();
+            async move {
+                if let Some(inner) = weak_inner.upgrade() {
+                    let manager = ClosedLoopManager { inner };
+                    run_expired_payment_cleanup(&manager).await;
+                }
+            }
+        });
 
         Ok(manager)
     }
@@ -227,7 +207,7 @@ impl ClosedLoopManager {
 
     /// Check if the closed loop type is Internal
     pub fn is_internal(&self) -> bool {
-        matches!(self.inner.config.loop_type, ClosedLoopType::Internal)
+        matches!(self.inner.config.loop_type, ClosedLoopKind::Internal)
     }
 
     /// Register a payment with expiry
@@ -278,7 +258,7 @@ impl ClosedLoopManager {
         let valid_dest = &self.inner.config.valid_destination_name;
 
         match &self.inner.config.loop_type {
-            ClosedLoopType::Internal => {
+            ClosedLoopKind::Internal => {
                 match self
                     .inner
                     .kv_store
@@ -294,7 +274,7 @@ impl ClosedLoopManager {
                     Err(e) => Err(Error::Database(e)),
                 }
             }
-            ClosedLoopType::NodePubkey(expected_pubkey) => {
+            ClosedLoopKind::NodePubkey(expected_pubkey) => {
                 let invoice =
                     bolt11.ok_or_else(|| Error::InvalidDestination(valid_dest.clone()))?;
 
@@ -309,7 +289,7 @@ impl ClosedLoopManager {
 
                 Ok(())
             }
-            ClosedLoopType::Square(square) => {
+            ClosedLoopKind::Square(square) => {
                 let invoice =
                     bolt11.ok_or_else(|| Error::InvalidDestination(valid_dest.clone()))?;
 

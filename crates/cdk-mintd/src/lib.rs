@@ -438,7 +438,13 @@ fn configure_basic_info(settings: &config::Settings, mint_builder: MintBuilder) 
 
     if let Some(agicash_config) = &settings.agicash {
         let closed_loop_enabled = agicash_config.closed_loop.is_some();
-        builder = builder.with_agicash(AgicashInfo::new(closed_loop_enabled));
+        let mut agicash_info = AgicashInfo::new(closed_loop_enabled);
+
+        if let Some(deposit_fee_config) = &agicash_config.deposit_fee {
+            agicash_info = agicash_info.deposit_fee(deposit_fee_config.to_nut06());
+        }
+
+        builder = builder.with_agicash(agicash_info);
     }
 
     builder

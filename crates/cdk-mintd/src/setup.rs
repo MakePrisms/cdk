@@ -406,11 +406,18 @@ impl config::Strike {
                 }
             });
 
+        let fee_config = settings
+            .agicash
+            .as_ref()
+            .and_then(|ac| ac.deposit_fee.as_ref())
+            .map(|df| df.to_fee_config(settings.mint_info.name.clone()));
+
         let strike = cdk_strike::Strike::new(
             self.api_key.clone(),
             unit,
             webhook_url.to_string(),
             closed_loop_config,
+            fee_config,
             kv_store,
         )
         .await?;

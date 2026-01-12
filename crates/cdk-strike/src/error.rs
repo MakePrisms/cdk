@@ -28,3 +28,10 @@ impl From<Error> for cdk_common::payment::Error {
         Self::Lightning(Box::new(e))
     }
 }
+
+impl From<Error> for cdk_agicash::FeeError {
+    fn from(e: Error) -> Self {
+        // Convert Strike Error to FeeError via payment::Error
+        cdk_agicash::FeeError::Payment(e.into())
+    }
+}

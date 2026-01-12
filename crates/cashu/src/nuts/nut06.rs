@@ -503,12 +503,51 @@ pub struct AgicashInfo {
     /// Whether closed loop payments are enabled. If true, the mint will only make
     /// payments that are within the loop.
     pub closed_loop: bool,
+    /// Deposit fee structure (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deposit_fee: Option<DepositFee>,
 }
 
 impl AgicashInfo {
     /// Create new [`AgicashInfo`]
     pub fn new(closed_loop: bool) -> Self {
-        Self { closed_loop }
+        Self {
+            closed_loop,
+            deposit_fee: None,
+        }
+    }
+
+    /// Set deposit fee
+    pub fn deposit_fee(self, deposit_fee: DepositFee) -> Self {
+        Self {
+            deposit_fee: Some(deposit_fee),
+            ..self
+        }
+    }
+}
+
+/// Deposit fee structure (basis points)
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[cfg_attr(feature = "swagger", derive(utoipa::ToSchema))]
+pub struct DepositFee {
+    /// Type of fee
+    #[serde(rename = "type")]
+    pub fee_type: String,
+    /// Fee in basis points (1 basis point = 0.01%, so 300 = 3%)
+    pub value: u64,
+    /// Minimum fee in the unit of the mint
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minimum: Option<u64>,
+}
+
+impl DepositFee {
+    /// Create a new basis points deposit fee
+    pub fn basis_points(value: u64, minimum: Option<u64>) -> Self {
+        Self {
+            fee_type: "basis_points".to_string(),
+            value,
+            minimum,
+        }
     }
 }
 
@@ -707,6 +746,49 @@ mod tests {
         matches!(t, MintMethodOptions::Bolt11 { description: true });
 
         assert_eq!(info, mint_info);
+    }
+
+    #[test]
+    fn test_deposit_fee_serialization() {
+        // Test basis points fee
+        let basis_points_fee = DepositFee::basis_points(300, None);
+        let json = serde_json::to_value(&basis_points_fee).unwrap();
+        assert_eq!(json["type"], "basis_points");
+        assert_eq!(json["value"], 300);
+        assert!(json["minimum"].is_null());
+
+        // Test with minimum
+        let fee_with_min = DepositFee::basis_points(300, Some(10));
+        let json = serde_json::to_value(&fee_with_min).unwrap();
+        assert_eq!(json["type"], "basis_points");
+        assert_eq!(json["value"], 300);
+        assert_eq!(json["minimum"], 10);
+
+        // Verify the exact JSON format matches requirements
+        let json_str = serde_json::to_string_pretty(&basis_points_fee).unwrap();
+        println!("Basis Points JSON:\n{}", json_str);
+
+        // Expected format:
+        // {
+        //   "type": "basis_points",
+        //   "value": 300
+        // }
+    }
+
+    #[test]
+    fn test_agicash_info_with_deposit_fee() {
+        // Test AgicashInfo with deposit fee
+        let agicash_info = AgicashInfo::new(true).deposit_fee(DepositFee::basis_points(300, None));
+        let json = serde_json::to_value(&agicash_info).unwrap();
+        assert_eq!(json["closed_loop"], true);
+        assert_eq!(json["deposit_fee"]["type"], "basis_points");
+        assert_eq!(json["deposit_fee"]["value"], 300);
+
+        // Test serialization of AgicashInfo without deposit fee
+        let agicash_info_no_fee = AgicashInfo::new(false);
+        let json = serde_json::to_value(&agicash_info_no_fee).unwrap();
+        assert_eq!(json["closed_loop"], false);
+        assert!(json["deposit_fee"].is_null());
     }
 
     #[test]

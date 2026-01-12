@@ -12,6 +12,7 @@ readme = "README.md"
 
 [dependencies]
 async-trait.workspace = true
+cashu.workspace = true
 cdk-common = { workspace = true, default-features = false, features = ["mint"] }
 parking_lot = "0.12.5"
 tokio.workspace = true

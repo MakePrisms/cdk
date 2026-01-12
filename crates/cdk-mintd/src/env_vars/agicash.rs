@@ -9,6 +9,12 @@ pub const ENV_AGICASH_CLOSED_LOOP_TYPE: &str = "CDK_MINTD_AGICASH_CLOSED_LOOP_TY
 pub const ENV_AGICASH_CLOSED_LOOP_VALID_DESTINATION: &str =
     "CDK_MINTD_AGICASH_CLOSED_LOOP_VALID_DESTINATION";
 
+// Agicash deposit fee environment variables
+pub const ENV_AGICASH_DEPOSIT_FEE_BASIS_POINTS: &str = "CDK_MINTD_AGICASH_DEPOSIT_FEE_BASIS_POINTS";
+pub const ENV_AGICASH_DEPOSIT_FEE_MINIMUM_FEE: &str = "CDK_MINTD_AGICASH_DEPOSIT_FEE_MINIMUM_FEE";
+pub const ENV_AGICASH_DEPOSIT_FEE_LIGHTNING_ADDRESS: &str =
+    "CDK_MINTD_AGICASH_DEPOSIT_FEE_LIGHTNING_ADDRESS";
+
 // Square configuration environment variables
 pub const ENV_AGICASH_CLOSED_LOOP_SQUARE_API_TOKEN: &str =
     "CDK_MINTD_AGICASH_CLOSED_LOOP_SQUARE_API_TOKEN";
@@ -95,6 +101,33 @@ impl Agicash {
             }
 
             self.closed_loop = Some(closed_loop);
+        }
+
+        // Parse deposit fee from environment
+        let has_deposit_fee_env = env::var(ENV_AGICASH_DEPOSIT_FEE_BASIS_POINTS).is_ok();
+
+        if has_deposit_fee_env {
+            let mut deposit_fee = self
+                .deposit_fee
+                .unwrap_or_else(|| cdk_agicash::DepositFeeConfig::new(0, 0, String::new()));
+
+            if let Ok(basis_points_str) = env::var(ENV_AGICASH_DEPOSIT_FEE_BASIS_POINTS) {
+                if let Ok(basis_points) = basis_points_str.parse::<u64>() {
+                    deposit_fee.basis_points = basis_points;
+                }
+            }
+
+            if let Ok(minimum_fee_str) = env::var(ENV_AGICASH_DEPOSIT_FEE_MINIMUM_FEE) {
+                if let Ok(minimum_fee) = minimum_fee_str.parse::<u64>() {
+                    deposit_fee.minimum_fee = minimum_fee;
+                }
+            }
+
+            if let Ok(lightning_address) = env::var(ENV_AGICASH_DEPOSIT_FEE_LIGHTNING_ADDRESS) {
+                deposit_fee.lightning_address = lightning_address;
+            }
+
+            self.deposit_fee = Some(deposit_fee);
         }
 
         self

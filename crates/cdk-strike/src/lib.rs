@@ -12,7 +12,7 @@ use std::time::Duration;
 use anyhow::{anyhow, bail};
 use async_trait::async_trait;
 use axum::Router;
-use cdk_agicash::{ClosedLoopConfig, ClosedLoopManager};
+use cdk_agicash::{ClosedLoopConfig, ClosedLoopManager, FeeConfig, FeeManager};
 use cdk_common::amount::Amount;
 use cdk_common::database::mint::DynMintKVStore;
 use cdk_common::nuts::{CurrencyUnit, MeltQuoteState};
@@ -90,6 +90,7 @@ pub struct Strike {
     webhook_mode_active: Arc<AtomicBool>,
     kv_store: DynMintKVStore,
     closed_loop: Option<ClosedLoopManager>,
+    fee_manager: Option<FeeManager>,
 }
 
 impl std::fmt::Debug for Strike {
@@ -124,6 +125,7 @@ impl Strike {
         unit: CurrencyUnit,
         webhook_url: String,
         closed_loop_config: Option<ClosedLoopConfig>,
+        fee_config: Option<FeeConfig>,
         kv_store: DynMintKVStore,
     ) -> Result<Self, Error> {
         let strike_api = StrikeApi::new(&api_key, None).map_err(Error::from)?;
@@ -144,18 +146,37 @@ impl Strike {
             None
         };
 
-        Ok(Self {
+        // Create the Strike instance first so we can use it in the callback
+        let strike = Self {
             strike_api,
             sender,
             receiver,
-            unit,
+            unit: unit.clone(),
             webhook_url,
             wait_invoice_cancel_token: CancellationToken::new(),
             wait_invoice_is_active: Arc::new(AtomicBool::new(false)),
             pending_invoices: Arc::new(Mutex::new(HashMap::new())),
             webhook_mode_active: Arc::new(AtomicBool::new(false)),
-            kv_store,
+            kv_store: kv_store.clone(),
             closed_loop,
+            fee_manager: None, // Will be set after creation
+        };
+
+        // Create fee manager with Strike as the payment backend (if configured)
+        let fee_manager = if let Some(config) = fee_config {
+            let payment_backend: Arc<dyn cdk_agicash::FeePayoutBackend> = Arc::new(strike.clone());
+
+            Some(
+                FeeManager::new(kv_store.clone(), config, payment_backend)
+                    .map_err(|e| Error::Anyhow(anyhow!("Failed to create fee manager: {}", e)))?,
+            )
+        } else {
+            None
+        };
+
+        Ok(Self {
+            fee_manager,
+            ..strike
         })
     }
 
@@ -185,6 +206,46 @@ impl Strike {
         })
     }
 
+    /// Process a completed invoice, handling fee payouts and returning the base amount
+    ///
+    /// Helper function that encapsulates the logic of:
+    /// 1. Notifying the fee manager that an invoice was paid
+    /// 2. Getting the base amount (minus fees) if fees were configured
+    /// 3. Falling back to the full invoice amount if no fees
+    async fn process_completed_invoice(
+        &self,
+        invoice_id: &str,
+        invoice_amount: StrikeAmount,
+        unit: &CurrencyUnit,
+    ) -> Result<u64, Error> {
+        match &self.fee_manager {
+            Some(fee_manager) => {
+                match fee_manager.notify_invoice_paid(invoice_id).await {
+                    Ok(Some(amount)) => Ok(amount),
+                    Ok(None) => {
+                        // No pending fee record, use full invoice amount as base
+                        Strike::from_strike_amount(invoice_amount, unit).map_err(Error::from)
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to process pending fee for invoice {}: {}",
+                            invoice_id,
+                            e
+                        );
+                        Err(Error::Anyhow(anyhow!(
+                            "Failed to process pending fee: {}",
+                            e
+                        )))
+                    }
+                }
+            }
+            None => {
+                // No fee manager, use full invoice amount
+                Strike::from_strike_amount(invoice_amount, unit).map_err(Error::from)
+            }
+        }
+    }
+
     fn create_webhook_stream(
         &self,
         receiver: tokio::sync::broadcast::Receiver<String>,
@@ -193,10 +254,12 @@ impl Strike {
         strike_api: StrikeApi,
         unit: CurrencyUnit,
     ) -> Pin<Box<dyn Stream<Item = Event> + Send>> {
+        let strike_self = self.clone();
         let response_stream = BroadcastStream::new(receiver)
             .filter_map(move |result| {
                 let unit = unit.clone();
                 let strike_api = strike_api.clone();
+                let strike_self = strike_self.clone();
                 let is_active = is_active.clone();
                 let cancel_token = cancel_token.clone();
                 async move {
@@ -208,23 +271,30 @@ impl Strike {
                         invoice_result = async {
                             match result {
                                 Ok(invoice_id) if !invoice_id.is_empty() => {
-                                    match strike_api.get_incoming_invoice(&invoice_id).await {
-                                        Ok(invoice) if invoice.state == InvoiceState::Paid || invoice.state == InvoiceState::Completed => {
-                                            match Strike::from_strike_amount(invoice.amount, &unit) {
-                                                Ok(amount) => {
-                                                    is_active.store(false, Ordering::SeqCst);
-                                                    Some(Event::PaymentReceived(WaitPaymentResponse {
-                                                        payment_identifier: PaymentIdentifier::CustomId(invoice_id.clone()),
-                                                        payment_amount: amount.into(),
-                                                        unit,
-                                                        payment_id: invoice_id,
-                                                    }))
-                                                }
-                                                Err(_) => None,
-                                            }
+                            match strike_api.get_incoming_invoice(&invoice_id).await {
+                                Ok(invoice) if invoice.state == InvoiceState::Paid || invoice.state == InvoiceState::Completed => {
+                                    // Process fee payout and get base amount
+                                    match strike_self
+                                        .process_completed_invoice(&invoice_id, invoice.amount, &unit)
+                                        .await
+                                    {
+                                        Ok(base_amount) => {
+                                            is_active.store(false, Ordering::SeqCst);
+                                            Some(Event::PaymentReceived(WaitPaymentResponse {
+                                                payment_identifier: PaymentIdentifier::CustomId(invoice_id.clone()),
+                                                payment_amount: base_amount.into(),
+                                                unit,
+                                                payment_id: invoice_id,
+                                            }))
                                         }
-                                        _ => None,
+                                        Err(e) => {
+                                            tracing::error!("Failed to resolve invoice base amount: {}", e);
+                                            None
+                                        }
                                     }
+                                }
+                                _ => None,
+                            }
                                 }
                                 Err(err) => {
                                     tracing::warn!("Error in webhook broadcast stream: {}", err);
@@ -249,24 +319,27 @@ impl Strike {
         pending_invoices: Arc<Mutex<HashMap<String, u64>>>,
         unit: CurrencyUnit,
     ) -> Pin<Box<dyn Stream<Item = Event> + Send>> {
-        // Clone for separate branches to avoid move issues
+        // Clone for each stream branch before moving
+        let strike_self_broadcast = self.clone();
         let strike_api_broadcast = strike_api.clone();
         let pending_invoices_broadcast = pending_invoices.clone();
         let unit_broadcast = unit.clone();
+        let cancel_token_broadcast = cancel_token.clone();
 
         let broadcast_stream = BroadcastStream::new(receiver)
             .filter_map(move |result| {
+                let strike_self = strike_self_broadcast.clone();
                 let strike_api = strike_api_broadcast.clone();
                 let pending_invoices = pending_invoices_broadcast.clone();
                 let unit = unit_broadcast.clone();
-                let cancel_token = cancel_token.clone();
+                let cancel_token = cancel_token_broadcast.clone();
                 async move {
                     tokio::select! {
                         _ = cancel_token.cancelled() => None,
                         event = async {
                             match result {
                                 Ok(invoice_id) => {
-                                    Self::process_invoice_message(&strike_api, &invoice_id, &unit, &pending_invoices).await
+                                    strike_self.process_invoice_message(&strike_api, &invoice_id, &unit, &pending_invoices).await
                                 }
                                 Err(err) => {
                                     tracing::warn!("Error in polling broadcast stream: {}", err);
@@ -279,16 +352,18 @@ impl Strike {
             });
 
         // Combine broadcast stream with periodic polling
+        let strike_self_polling = self.clone();
         let polling_stream = futures::stream::unfold(
-            (strike_api, pending_invoices, unit),
-            |(strike_api, pending_invoices, unit)| async move {
+            (strike_self_polling, strike_api, pending_invoices, unit),
+            |(strike_self, strike_api, pending_invoices, unit)| async move {
                 tokio::time::sleep(POLLING_INTERVAL).await;
-                let event =
-                    Self::poll_pending_invoices(&strike_api, &pending_invoices, &unit).await;
+                let event = strike_self
+                    .poll_pending_invoices(&strike_api, &pending_invoices, &unit)
+                    .await;
 
                 Self::cleanup_expired_invoices(&pending_invoices).await;
 
-                Some((event, (strike_api, pending_invoices, unit)))
+                Some((event, (strike_self, strike_api, pending_invoices, unit)))
             },
         )
         .filter_map(|event| async move { event });
@@ -302,6 +377,7 @@ impl Strike {
     }
 
     async fn process_invoice_message(
+        &self,
         strike_api: &StrikeApi,
         invoice_id: &str,
         unit: &CurrencyUnit,
@@ -317,15 +393,21 @@ impl Strike {
                     pending.remove(invoice_id);
                 }
 
-                if let Ok(amount) = Strike::from_strike_amount(invoice.amount, unit) {
-                    Some(Event::PaymentReceived(WaitPaymentResponse {
+                // Process fee payout and get base amount
+                match self
+                    .process_completed_invoice(invoice_id, invoice.amount, unit)
+                    .await
+                {
+                    Ok(base_amount) => Some(Event::PaymentReceived(WaitPaymentResponse {
                         payment_identifier: PaymentIdentifier::CustomId(invoice_id.to_string()),
-                        payment_amount: amount.into(),
+                        payment_amount: base_amount.into(),
                         unit: unit.clone(),
                         payment_id: invoice_id.to_string(),
-                    }))
-                } else {
-                    None
+                    })),
+                    Err(e) => {
+                        tracing::error!("Failed to resolve invoice base amount: {}", e);
+                        None
+                    }
                 }
             }
             _ => None,
@@ -333,6 +415,7 @@ impl Strike {
     }
 
     async fn poll_pending_invoices(
+        &self,
         strike_api: &StrikeApi,
         pending_invoices: &Arc<Mutex<HashMap<String, u64>>>,
         unit: &CurrencyUnit,
@@ -343,8 +426,9 @@ impl Strike {
         };
 
         for invoice_id in invoices_to_check {
-            if let Some(event) =
-                Self::process_invoice_message(strike_api, &invoice_id, unit, pending_invoices).await
+            if let Some(event) = self
+                .process_invoice_message(strike_api, &invoice_id, unit, pending_invoices)
+                .await
             {
                 return Some(event);
             }
@@ -514,6 +598,18 @@ impl Strike {
             }),
             Err(err) => Err(Error::from(err).into()),
         }
+    }
+}
+
+#[async_trait]
+impl cdk_agicash::FeePayoutBackend for Strike {
+    async fn pay_invoice(&self, bolt11: String) -> Result<String, cdk_agicash::FeeError> {
+        let invoice: Bolt11Invoice = bolt11.parse()?;
+        let result = self
+            .pay_bolt11_invoice(&invoice, &self.unit)
+            .await
+            .map_err(|e| cdk_agicash::FeeError::Payment(e.into()))?;
+        Ok(result.payment_id)
     }
 }
 
@@ -709,24 +805,7 @@ impl MintPayment for Strike {
             return Err(Self::Err::UnsupportedUnit);
         }
 
-        let source_currency = to_strike_currency(unit)?;
-
-        let payment_quote_request = PayInvoiceQuoteRequest {
-            ln_invoice: bolt11.to_string(),
-            source_currency,
-        };
-
-        let quote = self
-            .strike_api
-            .payment_quote(payment_quote_request)
-            .await
-            .map_err(Error::from)?;
-
-        let pay_response = self
-            .strike_api
-            .pay_quote(&quote.payment_quote_id)
-            .await
-            .map_err(Error::from)?;
+        let pay_response = self.pay_bolt11_invoice(&bolt11, unit).await?;
 
         let state = match pay_response.state {
             InvoiceState::Paid | InvoiceState::Completed => MeltQuoteState::Paid,
@@ -776,7 +855,10 @@ impl MintPayment for Strike {
         }
 
         let correlation_id = Uuid::new_v4();
-        let strike_amount = Strike::to_strike_unit(amount, unit)?;
+
+        let (invoice_amount, fee_amount) = self.calculate_deposit_fee(amount);
+
+        let strike_amount = Strike::to_strike_unit(invoice_amount, unit)?;
 
         let invoice_request = InvoiceRequest {
             correlation_id: Some(correlation_id.to_string()),
@@ -804,6 +886,15 @@ impl MintPayment for Strike {
             let mut pending_invoices = self.pending_invoices.lock().await;
             pending_invoices.insert(create_invoice_response.invoice_id.clone(), time_now);
         }
+
+        self.register_deposit_fee(
+            &create_invoice_response.invoice_id,
+            amount.into(),
+            fee_amount,
+            unit,
+            time_now + quote.expiration_in_sec,
+        )
+        .await?;
 
         if let Some(ref closed_loop) = self.closed_loop {
             // Only register payment if the closed loop type is Internal
@@ -836,21 +927,26 @@ impl MintPayment for Strike {
 
         match self.check_internal_settlement(&request_lookup_id).await {
             Ok(true) => {
-                let amount = Strike::from_strike_amount(invoice.amount, &self.unit)?;
+                let base_amount = self
+                    .process_completed_invoice(&request_lookup_id, invoice.amount, &self.unit)
+                    .await?;
 
                 Ok(vec![WaitPaymentResponse {
                     payment_identifier: payment_identifier.clone(),
-                    payment_amount: amount.into(),
+                    payment_amount: base_amount.into(),
                     unit: self.unit.clone(),
                     payment_id: request_lookup_id,
                 }])
             }
             Ok(false) => match invoice.state {
                 InvoiceState::Paid | InvoiceState::Completed => {
-                    let amount = Strike::from_strike_amount(invoice.amount, &self.unit)?;
+                    let base_amount = self
+                        .process_completed_invoice(&invoice.invoice_id, invoice.amount, &self.unit)
+                        .await?;
+
                     Ok(vec![WaitPaymentResponse {
                         payment_identifier: payment_identifier.clone(),
-                        payment_amount: amount.into(),
+                        payment_amount: base_amount.into(),
                         unit: self.unit.clone(),
                         payment_id: invoice.invoice_id,
                     }])
@@ -889,6 +985,114 @@ impl MintPayment for Strike {
 }
 
 impl Strike {
+    /// Calculate deposit fee and total invoice amount
+    fn calculate_deposit_fee(&self, amount: cdk_common::amount::Amount) -> (u64, u64) {
+        if let Some(ref fee_manager) = self.fee_manager {
+            let fee = fee_manager.calculate_fee(amount.into());
+            let total = u64::from(amount) + fee;
+            tracing::debug!(
+                "Applying deposit fee: base={}, fee={}, total={}",
+                amount,
+                fee,
+                total
+            );
+            (total, fee)
+        } else {
+            (amount.into(), 0)
+        }
+    }
+
+    /// Register a pending deposit fee
+    async fn register_deposit_fee(
+        &self,
+        invoice_id: &str,
+        base_amount: u64,
+        fee_amount: u64,
+        unit: &CurrencyUnit,
+        expires_at: u64,
+    ) -> Result<(), Error> {
+        if let Some(ref fee_manager) = self.fee_manager {
+            if fee_amount > 0 {
+                fee_manager
+                    .register_pending_fee(
+                        invoice_id.to_string(),
+                        base_amount,
+                        fee_amount,
+                        unit.clone(),
+                        expires_at,
+                    )
+                    .await
+                    .map_err(|e| {
+                        tracing::error!(
+                            "Failed to register pending fee for invoice {}: {}",
+                            invoice_id,
+                            e
+                        );
+                        Error::Anyhow(anyhow!("Failed to register pending fee: {}", e))
+                    })?;
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Result of paying a lightning invoice via Strike
+#[derive(Debug, Clone)]
+struct PaymentResult {
+    payment_id: String,
+    state: InvoiceState,
+    total_amount: StrikeAmount,
+}
+
+impl Strike {
+    /// Pay a lightning invoice using Strike's payment API (internal static version)
+    ///
+    /// This method handles the common flow of:
+    /// 1. Creating a payment quote for the bolt11 invoice
+    /// 2. Executing the payment via Strike
+    ///
+    /// Returns payment details on success
+    async fn pay_bolt11_invoice_internal(
+        strike_api: &StrikeApi,
+        bolt11: &Bolt11Invoice,
+        unit: &CurrencyUnit,
+    ) -> Result<PaymentResult, Error> {
+        let source_currency = to_strike_currency(unit)
+            .map_err(|e| Error::Anyhow(anyhow!("Failed to convert currency unit: {}", e)))?;
+
+        let payment_quote_request = PayInvoiceQuoteRequest {
+            ln_invoice: bolt11.to_string(),
+            source_currency,
+        };
+
+        let quote = strike_api
+            .payment_quote(payment_quote_request)
+            .await
+            .map_err(Error::from)?;
+
+        let pay_response = strike_api
+            .pay_quote(&quote.payment_quote_id)
+            .await
+            .map_err(Error::from)?;
+
+        Ok(PaymentResult {
+            payment_id: pay_response.payment_id,
+            state: pay_response.state,
+            total_amount: pay_response.total_amount,
+        })
+    }
+
+    /// Pay a lightning invoice using Strike's payment API
+    ///
+    /// This is a convenience wrapper around pay_bolt11_invoice_internal
+    async fn pay_bolt11_invoice(
+        &self,
+        bolt11: &Bolt11Invoice,
+        unit: &CurrencyUnit,
+    ) -> Result<PaymentResult, Error> {
+        Self::pay_bolt11_invoice_internal(&self.strike_api, bolt11, unit).await
+    }
+
     /// Record an internal settlement in the KV store
     async fn record_internal_settlement(
         &self,
@@ -1470,6 +1674,7 @@ mod tests {
             CurrencyUnit::Sat,
             "http://localhost:3000/webhook".to_string(),
             None,
+            None,
             kv_store,
         )
         .await;
@@ -1487,6 +1692,7 @@ mod tests {
             "test_api_key".to_string(),
             CurrencyUnit::Sat,
             "http://localhost:3000/webhook".to_string(),
+            None,
             None,
             kv_store,
         )

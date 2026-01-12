@@ -435,27 +435,8 @@ pub struct Strike {
     pub supported_units: Vec<CurrencyUnit>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum ClosedLoopType {
-    /// Internal payments only (payment hashes registered by this mint)
-    #[default]
-    Internal,
-    /// Square payment validation - validates the invoice is a Square Lightning payment
-    Square,
-}
-
-impl std::str::FromStr for ClosedLoopType {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "internal" => Ok(ClosedLoopType::Internal),
-            "square" => Ok(ClosedLoopType::Square),
-            _ => Err(format!("Unknown closed loop type: {s}")),
-        }
-    }
-}
+// Import agicash types
+pub use cdk_agicash::{ClosedLoopType, DepositFeeConfig};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClosedLoop {
@@ -474,6 +455,10 @@ pub struct Agicash {
     /// Closed loop payment configuration
     /// If present, closed loop payments are enabled
     pub closed_loop: Option<ClosedLoop>,
+    /// Deposit fee configuration
+    /// If present, deposit fees will be advertised in the mint info
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deposit_fee: Option<DepositFeeConfig>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
