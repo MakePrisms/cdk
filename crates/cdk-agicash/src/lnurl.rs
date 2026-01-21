@@ -95,7 +95,8 @@ pub struct LnUrlCallbackResponse {
 /// # use cdk_agicash::lnurl::resolve_lightning_address;
 /// # use cdk_agicash::lnurl::Error;
 /// # async fn example() -> Result<(), Error> {
-/// let invoice = resolve_lightning_address("user@wallet.com", 1000, Some("Payment comment")).await?;
+/// let invoice =
+///     resolve_lightning_address("user@wallet.com", 1000, Some("Payment comment")).await?;
 /// println!("Invoice: {}", invoice);
 /// # Ok(())
 /// # }

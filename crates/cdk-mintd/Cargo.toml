@@ -72,11 +72,11 @@ home.workspace = true
 utoipa = { workspace = true, optional = true }
 utoipa-swagger-ui = { version = "9.0.0", features = ["axum"], optional = true }
 
-[lints]
-workspace = true
-
 # Agicash Fork additions
 cdk-strike = { workspace = true, optional = true }
 cdk-agicash.workspace = true
+
+[lints]
+workspace = true
 
 [build-dependencies]

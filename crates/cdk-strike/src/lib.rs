@@ -14,19 +14,18 @@ use async_trait::async_trait;
 use axum::Router;
 use cdk_agicash::{ClosedLoopConfig, ClosedLoopManager, FeeConfig, FeeManager};
 use cdk_common::amount::Amount;
-use cdk_common::database::mint::DynMintKVStore;
+use cdk_common::database::DynKVStore;
 use cdk_common::nuts::{CurrencyUnit, MeltQuoteState};
 use cdk_common::payment::{
-    self, Bolt11Settings, CreateIncomingPaymentResponse, Event, IncomingPaymentOptions,
-    MakePaymentResponse, MintPayment, OutgoingPaymentOptions, PaymentIdentifier,
-    PaymentQuoteResponse, WaitPaymentResponse,
+    self, CreateIncomingPaymentResponse, Event, IncomingPaymentOptions, MakePaymentResponse,
+    MintPayment, OutgoingPaymentOptions, PaymentIdentifier, PaymentQuoteResponse,
+    WaitPaymentResponse,
 };
 use cdk_common::util::unix_time;
 use cdk_common::Bolt11Invoice;
 use error::Error;
 use futures::stream::StreamExt;
 use futures::Stream;
-use serde_json::Value;
 use strike_rs::{
     Amount as StrikeAmount, Currency as StrikeCurrencyUnit, CurrencyExchangeQuoteRequest,
     ExchangeAmount, ExchangeQuoteState, FeePolicy, InvoiceQueryParams, InvoiceRequest,
@@ -88,7 +87,7 @@ pub struct Strike {
     wait_invoice_is_active: Arc<AtomicBool>,
     pending_invoices: Arc<Mutex<HashMap<String, u64>>>,
     webhook_mode_active: Arc<AtomicBool>,
-    kv_store: DynMintKVStore,
+    kv_store: DynKVStore,
     closed_loop: Option<ClosedLoopManager>,
     fee_manager: Option<FeeManager>,
 }
@@ -126,7 +125,7 @@ impl Strike {
         webhook_url: String,
         closed_loop_config: Option<ClosedLoopConfig>,
         fee_config: Option<FeeConfig>,
-        kv_store: DynMintKVStore,
+        kv_store: DynKVStore,
     ) -> Result<Self, Error> {
         let strike_api = StrikeApi::new(&api_key, None).map_err(Error::from)?;
 
@@ -282,8 +281,7 @@ impl Strike {
                                             is_active.store(false, Ordering::SeqCst);
                                             Some(Event::PaymentReceived(WaitPaymentResponse {
                                                 payment_identifier: PaymentIdentifier::CustomId(invoice_id.clone()),
-                                                payment_amount: base_amount.into(),
-                                                unit,
+                                                payment_amount: Amount::from(base_amount).with_unit(unit),
                                                 payment_id: invoice_id,
                                             }))
                                         }
@@ -400,8 +398,7 @@ impl Strike {
                 {
                     Ok(base_amount) => Some(Event::PaymentReceived(WaitPaymentResponse {
                         payment_identifier: PaymentIdentifier::CustomId(invoice_id.to_string()),
-                        payment_amount: base_amount.into(),
-                        unit: unit.clone(),
+                        payment_amount: Amount::from(base_amount).with_unit(unit.clone()),
                         payment_id: invoice_id.to_string(),
                     })),
                     Err(e) => {
@@ -457,9 +454,8 @@ impl Strike {
                     "internal:{}",
                     correlation_id
                 ))),
-                amount: amount.into(),
-                unit: self.unit.clone(),
-                fee: Amount::ZERO,
+                amount: Amount::from(amount).with_unit(self.unit.clone()),
+                fee: Amount::ZERO.with_unit(self.unit.clone()),
                 state: MeltQuoteState::Unpaid,
             });
         }
@@ -502,9 +498,8 @@ impl Strike {
                 "exchange:{}",
                 currency_exchange_quote.id
             ))),
-            amount: converted_amount.into(),
-            unit: self.unit.clone(),
-            fee: fee.into(),
+            amount: Amount::from(converted_amount).with_unit(self.unit.clone()),
+            fee: Amount::from(fee).with_unit(self.unit.clone()),
             state: MeltQuoteState::Unpaid,
         })
     }
@@ -524,14 +519,13 @@ impl Strike {
             InvoiceState::Failed => MeltQuoteState::Failed,
         };
 
-        let total_spent = Strike::from_strike_amount(internal_invoice.amount, &self.unit)?.into();
+        let total_spent = Strike::from_strike_amount(internal_invoice.amount, &self.unit)?;
 
         Ok(MakePaymentResponse {
             payment_lookup_id: payment_identifier.clone(),
             payment_proof: None,
             status: state,
-            total_spent,
-            unit: self.unit.clone(),
+            total_spent: Amount::from(total_spent).with_unit(self.unit.clone()),
         })
     }
 
@@ -553,14 +547,13 @@ impl Strike {
             ExchangeQuoteState::Pending => MeltQuoteState::Pending,
         };
 
-        let total_spent = Strike::from_strike_amount(quote.source, &self.unit)?.into();
+        let total_spent = Strike::from_strike_amount(quote.source, &self.unit)?;
 
         Ok(MakePaymentResponse {
             payment_lookup_id: payment_identifier.clone(),
             payment_proof: None,
             status: state,
-            total_spent,
-            unit: self.unit.clone(),
+            total_spent: Amount::from(total_spent).with_unit(self.unit.clone()),
         })
     }
 
@@ -578,23 +571,20 @@ impl Strike {
                     InvoiceState::Failed => MeltQuoteState::Failed,
                 };
 
-                let total_spent =
-                    Strike::from_strike_amount(invoice.total_amount, &self.unit)?.into();
+                let total_spent = Strike::from_strike_amount(invoice.total_amount, &self.unit)?;
 
                 Ok(MakePaymentResponse {
                     payment_lookup_id: payment_identifier.clone(),
                     payment_proof: None,
                     status: state,
-                    total_spent,
-                    unit: self.unit.clone(),
+                    total_spent: Amount::from(total_spent).with_unit(self.unit.clone()),
                 })
             }
             Err(strike_rs::Error::NotFound) => Ok(MakePaymentResponse {
                 payment_lookup_id: payment_identifier.clone(),
                 payment_proof: None,
                 status: MeltQuoteState::Unknown,
-                total_spent: Amount::ZERO,
-                unit: self.unit.clone(),
+                total_spent: Amount::ZERO.with_unit(self.unit.clone()),
             }),
             Err(err) => Err(Error::from(err).into()),
         }
@@ -617,16 +607,17 @@ impl cdk_agicash::FeePayoutBackend for Strike {
 impl MintPayment for Strike {
     type Err = payment::Error;
 
-    async fn get_settings(&self) -> Result<Value, Self::Err> {
-        let settings = Bolt11Settings {
-            mpp: false,
-            unit: self.unit.clone(),
-            invoice_description: true,
-            amountless: false,
-            bolt12: false,
-        };
-
-        Ok(serde_json::to_value(settings)?)
+    async fn get_settings(&self) -> Result<payment::SettingsResponse, Self::Err> {
+        Ok(payment::SettingsResponse {
+            unit: self.unit.to_string(),
+            bolt11: Some(payment::Bolt11Settings {
+                mpp: false,
+                amountless: false,
+                invoice_description: true,
+            }),
+            bolt12: None,
+            custom: std::collections::HashMap::new(),
+        })
     }
 
     fn is_wait_invoice_active(&self) -> bool {
@@ -687,7 +678,7 @@ impl MintPayment for Strike {
     ) -> Result<PaymentQuoteResponse, Self::Err> {
         let bolt11 = match options {
             OutgoingPaymentOptions::Bolt11(opts) => opts.bolt11,
-            OutgoingPaymentOptions::Bolt12(_) => {
+            OutgoingPaymentOptions::Bolt12(_) | OutgoingPaymentOptions::Custom(_) => {
                 return Err(Self::Err::UnsupportedPaymentOption);
             }
         };
@@ -746,9 +737,8 @@ impl MintPayment for Strike {
                 "payment:{}",
                 quote.payment_quote_id
             ))),
-            amount: amount.into(),
-            unit: self.unit.clone(),
-            fee: fee.into(),
+            amount: Amount::from(amount).with_unit(self.unit.clone()),
+            fee: Amount::from(fee).with_unit(self.unit.clone()),
             state: MeltQuoteState::Unpaid,
         })
     }
@@ -760,7 +750,7 @@ impl MintPayment for Strike {
     ) -> Result<MakePaymentResponse, Self::Err> {
         let bolt11 = match &options {
             OutgoingPaymentOptions::Bolt11(opts) => &opts.bolt11,
-            OutgoingPaymentOptions::Bolt12(_) => {
+            OutgoingPaymentOptions::Bolt12(_) | OutgoingPaymentOptions::Custom(_) => {
                 return Err(Self::Err::UnsupportedPaymentOption);
             }
         };
@@ -796,7 +786,7 @@ impl MintPayment for Strike {
         // If not internal, proceed with external payment
         let bolt11 = match options {
             OutgoingPaymentOptions::Bolt11(opts) => opts.bolt11,
-            OutgoingPaymentOptions::Bolt12(_) => {
+            OutgoingPaymentOptions::Bolt12(_) | OutgoingPaymentOptions::Custom(_) => {
                 return Err(Self::Err::UnsupportedPaymentOption);
             }
         };
@@ -814,7 +804,7 @@ impl MintPayment for Strike {
             InvoiceState::Failed => MeltQuoteState::Failed,
         };
 
-        let total_spent = Strike::from_strike_amount(pay_response.total_amount, unit)?.into();
+        let total_spent = Strike::from_strike_amount(pay_response.total_amount, unit)?;
 
         Ok(MakePaymentResponse {
             payment_lookup_id: PaymentIdentifier::CustomId(format!(
@@ -823,8 +813,7 @@ impl MintPayment for Strike {
             )),
             payment_proof: None,
             status: state,
-            total_spent,
-            unit: unit.clone(),
+            total_spent: Amount::from(total_spent).with_unit(unit.clone()),
         })
     }
 
@@ -839,7 +828,7 @@ impl MintPayment for Strike {
                 opts.description.unwrap_or_default(),
                 opts.unix_expiry,
             ),
-            IncomingPaymentOptions::Bolt12(_) => {
+            IncomingPaymentOptions::Bolt12(_) | IncomingPaymentOptions::Custom(_) => {
                 return Err(Self::Err::UnsupportedPaymentOption);
             }
         };
@@ -911,6 +900,7 @@ impl MintPayment for Strike {
             request_lookup_id: PaymentIdentifier::CustomId(create_invoice_response.invoice_id),
             request: quote.ln_invoice,
             expiry,
+            extra_json: None,
             fee: Some(fee_amount.into()),
         })
     }
@@ -934,8 +924,7 @@ impl MintPayment for Strike {
 
                 Ok(vec![WaitPaymentResponse {
                     payment_identifier: payment_identifier.clone(),
-                    payment_amount: base_amount.into(),
-                    unit: self.unit.clone(),
+                    payment_amount: Amount::from(base_amount).with_unit(self.unit.clone()),
                     payment_id: request_lookup_id,
                 }])
             }
@@ -947,8 +936,7 @@ impl MintPayment for Strike {
 
                     Ok(vec![WaitPaymentResponse {
                         payment_identifier: payment_identifier.clone(),
-                        payment_amount: base_amount.into(),
-                        unit: self.unit.clone(),
+                        payment_amount: Amount::from(base_amount).with_unit(self.unit.clone()),
                         payment_id: invoice.invoice_id,
                     }])
                 }
@@ -1234,8 +1222,7 @@ impl Strike {
             payment_lookup_id: PaymentIdentifier::CustomId(format!("exchange:{}", quote.id)),
             payment_proof: None,
             status: MeltQuoteState::Paid,
-            total_spent: converted_amount.into(),
-            unit: unit.clone(),
+            total_spent: Amount::from(converted_amount).with_unit(unit.clone()),
         };
 
         if let Err(err) = self
@@ -1504,7 +1491,7 @@ mod tests {
         }
     }
 
-    fn create_mock_kv_store() -> DynMintKVStore {
+    fn create_mock_kv_store() -> DynKVStore {
         Arc::new(MockKVStore::default())
     }
 

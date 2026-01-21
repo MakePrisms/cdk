@@ -31,7 +31,7 @@ use cdk::nuts::nut19::{CachedEndpoint, Method as NUT19Method, Path as NUT19Path}
     feature = "cln",
     feature = "lnbits",
     feature = "lnd",
-    feature = "ldk-node"
+    feature = "ldk-node",
     feature = "strike"
 ))]
 use cdk::nuts::CurrencyUnit;
@@ -345,7 +345,7 @@ async fn configure_mint_builder(
     runtime: Option<std::sync::Arc<tokio::runtime::Runtime>>,
     work_dir: &Path,
     kv_store: Option<Arc<dyn KVStore<Err = cdk::cdk_database::Error> + Send + Sync>>,
-) -> Result<MintBuilder> {
+) -> Result<(MintBuilder, Vec<axum::Router>)> {
     // Configure basic mint information
     let mint_builder = configure_basic_info(settings, mint_builder);
 
@@ -456,7 +456,7 @@ async fn configure_lightning_backend(
     _runtime: Option<std::sync::Arc<tokio::runtime::Runtime>>,
     work_dir: &Path,
     _kv_store: Option<Arc<dyn KVStore<Err = cdk::cdk_database::Error> + Send + Sync>>,
-) -> Result<MintBuilder> {
+) -> Result<(MintBuilder, Vec<axum::Router>)> {
     let mint_melt_limits = MintMeltLimits {
         mint_min: settings.ln.min_mint,
         mint_max: settings.ln.max_mint,

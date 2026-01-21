@@ -477,8 +477,6 @@ pub struct MintQuote {
     /// changes for persistence.
     changes: Option<MintQuoteChange>,
     /// Fee charged by the mint that is added to the requested amount
-    #[serde(default)]
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub fee: Option<Amount>,
 }
 

@@ -7,8 +7,7 @@ use std::convert::TryFrom;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use cdk_common::database::mint::DynMintKVStore;
-use cdk_common::database::Error as DbError;
+use cdk_common::database::{DynKVStore, Error as DbError};
 use serde::{Deserialize, Serialize};
 
 use crate::square::Square;
@@ -157,7 +156,7 @@ pub struct ClosedLoopManager {
 }
 
 struct ClosedLoopManagerInner {
-    kv_store: DynMintKVStore,
+    kv_store: DynKVStore,
     config: ClosedLoopConfig,
     cleanup: PeriodicSupervisor,
 }
@@ -168,7 +167,7 @@ impl ClosedLoopManager {
     /// Automatically starts a background cleanup task that runs every hour to remove expired payments.
     /// If the loop type is Square, starts the Square sync system.
     pub async fn new(
-        kv_store: DynMintKVStore,
+        kv_store: DynKVStore,
         config: ClosedLoopConfig,
     ) -> Result<Self, cdk_common::error::Error> {
         // Start Square if configured
@@ -576,7 +575,7 @@ mod tests {
         }
     }
 
-    fn create_mock_kv_store() -> DynMintKVStore {
+    fn create_mock_kv_store() -> DynKVStore {
         Arc::new(MockKVStore::default())
     }
 

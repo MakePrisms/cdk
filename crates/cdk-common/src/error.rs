@@ -796,7 +796,7 @@ impl From<ErrorResponse> for Error {
             ErrorCode::QuoteExpired => Self::ExpiredQuote(0, 0),
             ErrorCode::WitnessMissingOrInvalid => Self::SignatureMissingOrInvalid,
             ErrorCode::PubkeyRequired => Self::PubkeyRequired,
-            ErrorCode::InvalidDestination => Self::InvalidDestination,
+            ErrorCode::InvalidDestination => Self::InvalidDestination(err.detail.clone()),
             // 30xxx - Clear auth errors
             ErrorCode::ClearAuthRequired => Self::ClearAuthRequired,
             ErrorCode::ClearAuthFailed => Self::ClearAuthFailed,

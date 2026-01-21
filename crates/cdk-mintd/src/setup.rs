@@ -371,7 +371,7 @@ impl config::Strike {
         &self,
         settings: &Settings,
         unit: CurrencyUnit,
-        kv_store: cdk_common::database::mint::DynMintKVStore,
+        kv_store: cdk_common::database::DynKVStore,
     ) -> anyhow::Result<(cdk_strike::Strike, axum::Router)> {
         use cdk::mint_url::MintUrl;
         use cdk_agicash::ClosedLoopConfig;

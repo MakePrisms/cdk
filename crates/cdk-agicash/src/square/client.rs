@@ -6,7 +6,7 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use cdk_common::database::mint::DynMintKVStore;
+use cdk_common::database::DynKVStore;
 use cdk_common::lightning_invoice::Bolt11Invoice;
 use cdk_common::util::hex;
 use squareup::config::{Configuration as SquareConfiguration, Environment as SquareEnvironment};
@@ -40,7 +40,7 @@ pub struct Square {
     /// Payment expiry time in seconds (how far back to sync payments)
     pub(crate) payment_expiry: u64,
     /// KV store for persistent data (invoice hashes, signature key, etc.)
-    pub(crate) kv_store: DynMintKVStore,
+    pub(crate) kv_store: DynKVStore,
     /// Cached merchant business names for invoice description matching
     pub(crate) merchant_names: Arc<RwLock<Vec<String>>>,
     /// PostgreSQL database URL for OAuth credentials
@@ -59,7 +59,7 @@ impl Square {
     pub fn from_config(
         square_config: SquareConfig,
         webhook_url: Option<String>,
-        kv_store: DynMintKVStore,
+        kv_store: DynKVStore,
     ) -> Result<Self, Error> {
         // Square requires TLS for HTTPS requests
         // Install rustls crypto provider if not already set

@@ -44,8 +44,7 @@
 
 use std::sync::Arc;
 
-use cdk_common::database::mint::DynMintKVStore;
-use cdk_common::database::Error as DbError;
+use cdk_common::database::{DynKVStore, Error as DbError};
 use cdk_common::nuts::CurrencyUnit;
 
 use super::backend::FeePayoutBackend;
@@ -123,7 +122,7 @@ pub struct FeeManager {
 }
 
 struct FeeManagerInner {
-    kv_store: DynMintKVStore,
+    kv_store: DynKVStore,
     calculator: Arc<dyn FeeCalculator>,
     lightning_address: String,
     mint_name: String,
@@ -136,7 +135,7 @@ impl FeeManager {
     ///
     /// The payment backend will be called to pay invoices when fees need to be paid out.
     pub fn new(
-        kv_store: DynMintKVStore,
+        kv_store: DynKVStore,
         config: FeeConfig,
         payment_backend: Arc<dyn FeePayoutBackend>,
     ) -> Result<Self, DbError> {

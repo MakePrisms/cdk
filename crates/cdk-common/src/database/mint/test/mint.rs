@@ -33,6 +33,7 @@ where
         vec![],
         vec![],
         None,
+        None,
     );
 
     let mut tx = Database::begin_transaction(&db).await.unwrap();
@@ -59,6 +60,7 @@ where
         0,
         vec![],
         vec![],
+        None,
         None,
     );
     let mut tx = Database::begin_transaction(&db).await.unwrap();
@@ -89,6 +91,7 @@ where
         0,
         vec![],
         vec![],
+        None,
         None,
     );
 
@@ -160,6 +163,7 @@ where
         0,
         vec![],
         vec![],
+        None,
         None,
     );
 
@@ -237,6 +241,7 @@ where
         vec![],
         vec![],
         None,
+        None,
     );
 
     let p1 = unique_string();
@@ -288,6 +293,7 @@ where
         0,
         vec![],
         vec![],
+        None,
         None,
     );
 
@@ -344,6 +350,7 @@ where
         vec![],
         vec![],
         None,
+        None,
     );
 
     let mut tx = Database::begin_transaction(&db).await.unwrap();
@@ -373,6 +380,7 @@ where
         0,
         vec![],
         vec![],
+        None,
         None,
     );
 
@@ -412,6 +420,7 @@ where
         vec![],
         vec![],
         None,
+        None,
     );
 
     let p1 = unique_string();
@@ -450,6 +459,7 @@ where
         0,
         vec![],
         vec![],
+        None,
         None,
     );
 
@@ -883,6 +893,7 @@ where
         vec![],
         vec![],
         None,
+        None,
     );
 
     let quote2 = MintQuote::new(
@@ -899,6 +910,7 @@ where
         0,
         vec![],
         vec![],
+        None,
         None,
     );
 
@@ -982,6 +994,7 @@ where
         vec![],
         vec![],
         None,
+        None,
     );
 
     // Add quote
@@ -1019,6 +1032,7 @@ where
         0,
         vec![],
         vec![],
+        None,
         None,
     );
 
@@ -1135,6 +1149,7 @@ where
         vec![],
         vec![],
         None,
+        None,
     );
 
     // Add quote
@@ -1204,6 +1219,7 @@ where
         0,
         vec![],
         vec![],
+        None,
         None,
     );
 
@@ -1284,6 +1300,7 @@ where
         vec![],
         vec![],
         None,
+        None,
     );
 
     // Add quote
@@ -1357,6 +1374,7 @@ where
         vec![],
         vec![],
         None,
+        None,
     );
 
     // Add quote
@@ -1396,6 +1414,7 @@ where
         0,
         vec![],
         vec![],
+        None,
         None,
     );
 
@@ -1473,6 +1492,7 @@ where
         0,
         vec![],
         vec![],
+        None,
         None,
     );
 
@@ -1569,6 +1589,7 @@ where
         0,
         vec![],
         vec![],
+        None,
         None,
     );
 
