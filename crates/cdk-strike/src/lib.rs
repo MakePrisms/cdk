@@ -13,22 +13,20 @@ use anyhow::{anyhow, bail};
 use async_trait::async_trait;
 use axum::Router;
 use cdk_common::amount::Amount;
-use cdk_common::database::mint::DynMintKVStore;
+use cdk_common::database::DynKVStore;
 use cdk_common::nuts::{CurrencyUnit, MeltQuoteState};
 use cdk_common::payment::{
     self, Bolt11Settings, CreateIncomingPaymentResponse, Event, IncomingPaymentOptions,
     MakePaymentResponse, MintPayment, OutgoingPaymentOptions, PaymentIdentifier,
-    PaymentQuoteResponse, WaitPaymentResponse,
+    PaymentQuoteResponse, SettingsResponse, WaitPaymentResponse,
 };
 use cdk_common::util::unix_time;
 use cdk_common::Bolt11Invoice;
 use error::Error;
 use futures::stream::StreamExt;
 use futures::Stream;
-use serde_json::Value;
 use strike_rs::{
-    Amount as StrikeAmount, Currency as StrikeCurrencyUnit, CurrencyExchangeQuoteRequest,
-    ExchangeAmount, ExchangeQuoteState, FeePolicy, InvoiceQueryParams, InvoiceRequest,
+    Amount as StrikeAmount, Currency as StrikeCurrencyUnit, InvoiceQueryParams, InvoiceRequest,
     InvoiceState, PayInvoiceQuoteRequest, Strike as StrikeApi,
 };
 use tokio::sync::Mutex;
@@ -69,8 +67,6 @@ fn create_invoice_description(base_description: &str, correlation_id: &Uuid) -> 
 fn to_strike_currency(unit: &CurrencyUnit) -> Result<StrikeCurrencyUnit, payment::Error> {
     match unit {
         CurrencyUnit::Sat | CurrencyUnit::Msat => Ok(StrikeCurrencyUnit::BTC),
-        CurrencyUnit::Usd => Ok(StrikeCurrencyUnit::USD),
-        CurrencyUnit::Eur => Ok(StrikeCurrencyUnit::EUR),
         _ => Err(payment::Error::UnsupportedUnit),
     }
 }
@@ -87,7 +83,7 @@ pub struct Strike {
     wait_invoice_is_active: Arc<AtomicBool>,
     pending_invoices: Arc<Mutex<HashMap<String, u64>>>,
     webhook_mode_active: Arc<AtomicBool>,
-    kv_store: DynMintKVStore,
+    kv_store: DynKVStore,
 }
 
 impl std::fmt::Debug for Strike {
@@ -121,7 +117,7 @@ impl Strike {
         api_key: String,
         unit: CurrencyUnit,
         webhook_url: String,
-        kv_store: DynMintKVStore,
+        kv_store: DynKVStore,
     ) -> Result<Self, Error> {
         let strike_api = StrikeApi::new(&api_key, None).map_err(Error::from)?;
 
@@ -199,8 +195,7 @@ impl Strike {
                                                     is_active.store(false, Ordering::SeqCst);
                                                     Some(Event::PaymentReceived(WaitPaymentResponse {
                                                         payment_identifier: PaymentIdentifier::CustomId(invoice_id.clone()),
-                                                        payment_amount: amount.into(),
-                                                        unit,
+                                                        payment_amount: Amount::new(amount, unit.clone()),
                                                         payment_id: invoice_id,
                                                     }))
                                                 }
@@ -304,8 +299,7 @@ impl Strike {
                 if let Ok(amount) = Strike::from_strike_amount(invoice.amount, unit) {
                     Some(Event::PaymentReceived(WaitPaymentResponse {
                         payment_identifier: PaymentIdentifier::CustomId(invoice_id.to_string()),
-                        payment_amount: amount.into(),
-                        unit: unit.clone(),
+                        payment_amount: Amount::new(amount, unit.clone()),
                         payment_id: invoice_id.to_string(),
                     }))
                 } else {
@@ -347,64 +341,16 @@ impl Strike {
     async fn handle_internal_payment_quote(
         &self,
         internal_invoice: strike_rs::InvoiceListItem,
-        source_currency: StrikeCurrencyUnit,
         correlation_id: &str,
     ) -> Result<PaymentQuoteResponse, payment::Error> {
-        if internal_invoice.amount.currency == source_currency {
-            let amount = Strike::from_strike_amount(internal_invoice.amount, &self.unit)?;
-            return Ok(PaymentQuoteResponse {
-                request_lookup_id: Some(PaymentIdentifier::CustomId(format!(
-                    "internal:{}",
-                    correlation_id
-                ))),
-                amount: amount.into(),
-                unit: self.unit.clone(),
-                fee: Amount::ZERO,
-                state: MeltQuoteState::Unpaid,
-            });
-        }
-
-        // Currency exchange needed
-        let exchange_request = CurrencyExchangeQuoteRequest {
-            sell: source_currency,
-            buy: internal_invoice.amount.currency.clone(),
-            amount: ExchangeAmount {
-                amount: internal_invoice.amount.amount.to_string(),
-                currency: internal_invoice.amount.currency,
-                fee_policy: Some(FeePolicy::Exclusive),
-            },
-        };
-
-        let currency_exchange_quote = self
-            .strike_api
-            .create_currency_exchange_quote(exchange_request)
-            .await
-            .map_err(Error::from)?;
-
-        let converted_amount =
-            Strike::from_strike_amount(currency_exchange_quote.source.clone(), &self.unit)?;
-        let fee = if let Some(fee_info) = &currency_exchange_quote.fee {
-            if Strike::currency_unit_eq_strike(&self.unit, &fee_info.currency) {
-                Strike::from_strike_amount(fee_info.clone(), &self.unit)?
-            } else {
-                Strike::convert_fee_to_unit(
-                    fee_info.clone(),
-                    &self.unit,
-                    currency_exchange_quote.conversion_rate.clone(),
-                )?
-            }
-        } else {
-            0
-        };
-
+        let amount = Strike::from_strike_amount(internal_invoice.amount, &self.unit)?;
         Ok(PaymentQuoteResponse {
             request_lookup_id: Some(PaymentIdentifier::CustomId(format!(
-                "exchange:{}",
-                currency_exchange_quote.id
+                "internal:{}",
+                correlation_id
             ))),
-            amount: converted_amount.into(),
-            unit: self.unit.clone(),
-            fee: fee.into(),
+            amount: Amount::new(amount, self.unit.clone()),
+            fee: Amount::new(0, self.unit.clone()),
             state: MeltQuoteState::Unpaid,
         })
     }
@@ -424,43 +370,13 @@ impl Strike {
             InvoiceState::Failed => MeltQuoteState::Failed,
         };
 
-        let total_spent = Strike::from_strike_amount(internal_invoice.amount, &self.unit)?.into();
+        let total_spent = Strike::from_strike_amount(internal_invoice.amount, &self.unit)?;
 
         Ok(MakePaymentResponse {
             payment_lookup_id: payment_identifier.clone(),
             payment_proof: None,
             status: state,
-            total_spent,
-            unit: self.unit.clone(),
-        })
-    }
-
-    async fn check_exchange_payment(
-        &self,
-        payment_identifier: &PaymentIdentifier,
-        quote_id: &str,
-    ) -> Result<MakePaymentResponse, payment::Error> {
-        let quote = self
-            .strike_api
-            .get_currency_exchange_quote(quote_id)
-            .await
-            .map_err(Error::from)?;
-
-        let state = match quote.state {
-            ExchangeQuoteState::Completed => MeltQuoteState::Paid,
-            ExchangeQuoteState::Failed => MeltQuoteState::Failed,
-            ExchangeQuoteState::New => MeltQuoteState::Unpaid,
-            ExchangeQuoteState::Pending => MeltQuoteState::Pending,
-        };
-
-        let total_spent = Strike::from_strike_amount(quote.source, &self.unit)?.into();
-
-        Ok(MakePaymentResponse {
-            payment_lookup_id: payment_identifier.clone(),
-            payment_proof: None,
-            status: state,
-            total_spent,
-            unit: self.unit.clone(),
+            total_spent: Amount::new(total_spent, self.unit.clone()),
         })
     }
 
@@ -478,23 +394,20 @@ impl Strike {
                     InvoiceState::Failed => MeltQuoteState::Failed,
                 };
 
-                let total_spent =
-                    Strike::from_strike_amount(invoice.total_amount, &self.unit)?.into();
+                let total_spent = Strike::from_strike_amount(invoice.total_amount, &self.unit)?;
 
                 Ok(MakePaymentResponse {
                     payment_lookup_id: payment_identifier.clone(),
                     payment_proof: None,
                     status: state,
-                    total_spent,
-                    unit: self.unit.clone(),
+                    total_spent: Amount::new(total_spent, self.unit.clone()),
                 })
             }
             Err(strike_rs::Error::NotFound) => Ok(MakePaymentResponse {
                 payment_lookup_id: payment_identifier.clone(),
                 payment_proof: None,
                 status: MeltQuoteState::Unknown,
-                total_spent: Amount::ZERO,
-                unit: self.unit.clone(),
+                total_spent: Amount::new(0, self.unit.clone()),
             }),
             Err(err) => Err(Error::from(err).into()),
         }
@@ -505,16 +418,17 @@ impl Strike {
 impl MintPayment for Strike {
     type Err = payment::Error;
 
-    async fn get_settings(&self) -> Result<Value, Self::Err> {
-        let settings = Bolt11Settings {
-            mpp: false,
-            unit: self.unit.clone(),
-            invoice_description: true,
-            amountless: false,
-            bolt12: false,
-        };
-
-        Ok(serde_json::to_value(settings)?)
+    async fn get_settings(&self) -> Result<SettingsResponse, Self::Err> {
+        Ok(SettingsResponse {
+            unit: self.unit.to_string(),
+            bolt11: Some(Bolt11Settings {
+                mpp: false,
+                amountless: false,
+                invoice_description: true,
+            }),
+            bolt12: None,
+            custom: std::collections::HashMap::new(),
+        })
     }
 
     fn is_wait_invoice_active(&self) -> bool {
@@ -575,7 +489,7 @@ impl MintPayment for Strike {
     ) -> Result<PaymentQuoteResponse, Self::Err> {
         let bolt11 = match options {
             OutgoingPaymentOptions::Bolt11(opts) => opts.bolt11,
-            OutgoingPaymentOptions::Bolt12(_) => {
+            OutgoingPaymentOptions::Bolt12(_) | OutgoingPaymentOptions::Custom(_) => {
                 return Err(Self::Err::UnsupportedPaymentOption);
             }
         };
@@ -594,11 +508,7 @@ impl MintPayment for Strike {
                 self.lookup_invoice_by_correlation_id(correlation_id).await
             {
                 return self
-                    .handle_internal_payment_quote(
-                        internal_invoice,
-                        source_currency,
-                        correlation_id,
-                    )
+                    .handle_internal_payment_quote(internal_invoice, correlation_id)
                     .await;
             }
         }
@@ -628,9 +538,8 @@ impl MintPayment for Strike {
                 "payment:{}",
                 quote.payment_quote_id
             ))),
-            amount: amount.into(),
-            unit: self.unit.clone(),
-            fee: fee.into(),
+            amount: Amount::new(amount, self.unit.clone()),
+            fee: Amount::new(fee, self.unit.clone()),
             state: MeltQuoteState::Unpaid,
         })
     }
@@ -640,45 +549,9 @@ impl MintPayment for Strike {
         unit: &CurrencyUnit,
         options: OutgoingPaymentOptions,
     ) -> Result<MakePaymentResponse, Self::Err> {
-        let bolt11 = match &options {
-            OutgoingPaymentOptions::Bolt11(opts) => &opts.bolt11,
-            OutgoingPaymentOptions::Bolt12(_) => {
-                return Err(Self::Err::UnsupportedPaymentOption);
-            }
-        };
-
-        // Check if this might be internal settlement
-        let description = bolt11.description().to_string();
-        let correlation_id = extract_correlation_id(&description);
-
-        if let Some(correlation_id) = correlation_id {
-            if let Ok(internal_invoice) =
-                self.lookup_invoice_by_correlation_id(correlation_id).await
-            {
-                let source_currency = to_strike_currency(unit)?;
-                // Only try internal settlement if currencies are different
-                if internal_invoice.amount.currency != source_currency {
-                    return self
-                        .process_internal_settlement(internal_invoice, unit)
-                        .await;
-                } else {
-                    // Same currency internal invoice should have been settled at mint level
-                    tracing::error!(
-                        "Internal invoice found for correlation ID {} with same currency {}. This should have been settled at the mint level, not Strike.",
-                        correlation_id, source_currency
-                    );
-                    return Err(Self::Err::Custom(format!(
-                        "Internal invoice with same currency {} should be settled at mint level, not Strike backend",
-                        source_currency
-                    )));
-                }
-            }
-        }
-
-        // If not internal, proceed with external payment
         let bolt11 = match options {
             OutgoingPaymentOptions::Bolt11(opts) => opts.bolt11,
-            OutgoingPaymentOptions::Bolt12(_) => {
+            OutgoingPaymentOptions::Bolt12(_) | OutgoingPaymentOptions::Custom(_) => {
                 return Err(Self::Err::UnsupportedPaymentOption);
             }
         };
@@ -713,7 +586,7 @@ impl MintPayment for Strike {
             InvoiceState::Failed => MeltQuoteState::Failed,
         };
 
-        let total_spent = Strike::from_strike_amount(pay_response.total_amount, unit)?.into();
+        let total_spent = Strike::from_strike_amount(pay_response.total_amount, unit)?;
 
         Ok(MakePaymentResponse {
             payment_lookup_id: PaymentIdentifier::CustomId(format!(
@@ -722,8 +595,7 @@ impl MintPayment for Strike {
             )),
             payment_proof: None,
             status: state,
-            total_spent,
-            unit: unit.clone(),
+            total_spent: Amount::new(total_spent, unit.clone()),
         })
     }
 
@@ -738,7 +610,7 @@ impl MintPayment for Strike {
                 opts.description.unwrap_or_default(),
                 opts.unix_expiry,
             ),
-            IncomingPaymentOptions::Bolt12(_) => {
+            IncomingPaymentOptions::Bolt12(_) | IncomingPaymentOptions::Custom(_) => {
                 return Err(Self::Err::UnsupportedPaymentOption);
             }
         };
@@ -787,6 +659,7 @@ impl MintPayment for Strike {
             request_lookup_id: PaymentIdentifier::CustomId(create_invoice_response.invoice_id),
             request: quote.ln_invoice,
             expiry,
+            extra_json: None,
         })
     }
 
@@ -807,8 +680,7 @@ impl MintPayment for Strike {
 
                 Ok(vec![WaitPaymentResponse {
                     payment_identifier: payment_identifier.clone(),
-                    payment_amount: amount.into(),
-                    unit: self.unit.clone(),
+                    payment_amount: Amount::new(amount, self.unit.clone()),
                     payment_id: request_lookup_id,
                 }])
             }
@@ -817,8 +689,7 @@ impl MintPayment for Strike {
                     let amount = Strike::from_strike_amount(invoice.amount, &self.unit)?;
                     Ok(vec![WaitPaymentResponse {
                         payment_identifier: payment_identifier.clone(),
-                        payment_amount: amount.into(),
-                        unit: self.unit.clone(),
+                        payment_amount: Amount::new(amount, self.unit.clone()),
                         payment_id: invoice.invoice_id,
                     }])
                 }
@@ -849,38 +720,12 @@ impl MintPayment for Strike {
 
         match label {
             "internal" => self.check_internal_payment(payment_identifier, id).await,
-            "exchange" => self.check_exchange_payment(payment_identifier, id).await,
             _ => self.check_regular_payment(payment_identifier, id).await,
         }
     }
 }
 
 impl Strike {
-    /// Record an internal settlement in the KV store
-    async fn record_internal_settlement(
-        &self,
-        invoice_id: &str,
-    ) -> Result<(), cdk_common::database::Error> {
-        let key = format!("{}{}", INTERNAL_SETTLEMENT_PREFIX, invoice_id);
-        let settlement_data = serde_json::json!({
-            "settled_at": unix_time(),
-            "invoice_id": invoice_id
-        });
-        let value = serde_json::to_vec(&settlement_data)?;
-
-        let mut tx = self.kv_store.begin_transaction().await?;
-        tx.kv_write(
-            STRIKE_KV_PRIMARY_NAMESPACE,
-            STRIKE_KV_SECONDARY_NAMESPACE,
-            &key,
-            &value,
-        )
-        .await?;
-        tx.commit().await?;
-
-        Ok(())
-    }
-
     /// Check if an invoice was settled internally
     async fn check_internal_settlement(
         &self,
@@ -923,100 +768,6 @@ impl Strike {
             .create_invoice_webhook_router(webhook_endpoint, mpsc_sender)
             .await
     }
-
-    /// Execute currency exchange for internal payment (by quote id only)
-    async fn execute_currency_exchange_by_id(&self, quote_id: &str) -> Result<(u64, u64), Error> {
-        match self
-            .strike_api
-            .execute_currency_exchange_quote(quote_id)
-            .await
-        {
-            Ok(_) => (),
-            Err(strike_rs::Error::ApiError(api_error)) => {
-                if api_error
-                    .is_error_code(&strike_rs::StrikeErrorCode::CurrencyExchangeQuoteExpired)
-                {
-                    tracing::warn!("Currency exchange quote {} has expired", quote_id);
-                    return Err(Error::Anyhow(anyhow!(
-                        "Currency exchange quote has expired"
-                    )));
-                } else {
-                    return Err(strike_rs::Error::ApiError(api_error).into());
-                }
-            }
-            Err(e) => return Err(e.into()),
-        }
-        // After execution, fetch the quote to get the amounts/fees
-        let quote = self
-            .strike_api
-            .get_currency_exchange_quote(quote_id)
-            .await
-            .map_err(Error::from)?;
-        let converted_amount = Strike::from_strike_amount(quote.source.clone(), &self.unit)?;
-        let fee = if let Some(fee_info) = quote.fee.clone() {
-            if Strike::currency_unit_eq_strike(&self.unit, &fee_info.currency) {
-                Strike::from_strike_amount(fee_info.clone(), &self.unit)?
-            } else {
-                Strike::convert_fee_to_unit(fee_info, &self.unit, quote.conversion_rate)?
-            }
-        } else {
-            0
-        };
-        Ok((converted_amount, fee))
-    }
-
-    /// Process internal settlement for cross-currency payments only
-    async fn process_internal_settlement(
-        &self,
-        internal_invoice: strike_rs::InvoiceListItem,
-        unit: &CurrencyUnit,
-    ) -> Result<MakePaymentResponse, payment::Error> {
-        let source_currency = to_strike_currency(unit)?;
-
-        let invoice_amount = internal_invoice.amount.clone();
-        let exchange_request = CurrencyExchangeQuoteRequest {
-            sell: source_currency,
-            buy: invoice_amount.currency.clone(),
-            amount: ExchangeAmount {
-                amount: invoice_amount.amount.to_string(),
-                currency: invoice_amount.currency.clone(),
-                fee_policy: Some(FeePolicy::Exclusive),
-            },
-        };
-
-        let quote = self
-            .strike_api
-            .create_currency_exchange_quote(exchange_request)
-            .await
-            .map_err(Error::from)?;
-
-        let (converted_amount, _fee) = self.execute_currency_exchange_by_id(&quote.id).await?;
-
-        let response = MakePaymentResponse {
-            payment_lookup_id: PaymentIdentifier::CustomId(format!("exchange:{}", quote.id)),
-            payment_proof: None,
-            status: MeltQuoteState::Paid,
-            total_spent: converted_amount.into(),
-            unit: unit.clone(),
-        };
-
-        if let Err(err) = self
-            .record_internal_settlement(&internal_invoice.invoice_id)
-            .await
-        {
-            tracing::warn!("Failed to record internal settlement: {}", err);
-        }
-
-        // Notify the payment stream that this invoice has been settled
-        if let Err(err) = self.sender.send(internal_invoice.invoice_id.clone()) {
-            tracing::warn!(
-                "Failed to notify payment stream of internal settlement: {}",
-                err
-            );
-        }
-
-        Ok(response)
-    }
 }
 
 impl Strike {
@@ -1029,7 +780,7 @@ impl Strike {
                 if strike_amount.currency == StrikeCurrencyUnit::BTC {
                     strike_amount.to_sats()
                 } else {
-                    bail!("Cannot convert Strike amount: expected BTC currency for Sat unit, got {:?} currency with amount {}", 
+                    bail!("Cannot convert Strike amount: expected BTC currency for Sat unit, got {:?} currency with amount {}",
                           strike_amount.currency, strike_amount.amount);
                 }
             }
@@ -1037,23 +788,7 @@ impl Strike {
                 if strike_amount.currency == StrikeCurrencyUnit::BTC {
                     Ok(strike_amount.to_sats()? * 1000)
                 } else {
-                    bail!("Cannot convert Strike amount: expected BTC currency for Msat unit, got {:?} currency with amount {}", 
-                          strike_amount.currency, strike_amount.amount);
-                }
-            }
-            CurrencyUnit::Usd => {
-                if strike_amount.currency == StrikeCurrencyUnit::USD {
-                    Ok((strike_amount.amount * 100.0).round() as u64)
-                } else {
-                    bail!("Cannot convert Strike amount: expected USD currency for Usd unit, got {:?} currency with amount {}", 
-                          strike_amount.currency, strike_amount.amount);
-                }
-            }
-            CurrencyUnit::Eur => {
-                if strike_amount.currency == StrikeCurrencyUnit::EUR {
-                    Ok((strike_amount.amount * 100.0).round() as u64)
-                } else {
-                    bail!("Cannot convert Strike amount: expected EUR currency for Eur unit, got {:?} currency with amount {}", 
+                    bail!("Cannot convert Strike amount: expected BTC currency for Msat unit, got {:?} currency with amount {}",
                           strike_amount.currency, strike_amount.amount);
                 }
             }
@@ -1069,63 +804,7 @@ impl Strike {
         match current_unit {
             CurrencyUnit::Sat => Ok(StrikeAmount::from_sats(amount)),
             CurrencyUnit::Msat => Ok(StrikeAmount::from_sats(amount / 1000)),
-            CurrencyUnit::Usd => {
-                let dollars = amount as f64 / 100.0;
-                Ok(StrikeAmount {
-                    currency: StrikeCurrencyUnit::USD,
-                    amount: dollars,
-                })
-            }
-            CurrencyUnit::Eur => {
-                let euro = amount as f64 / 100.0;
-                Ok(StrikeAmount {
-                    currency: StrikeCurrencyUnit::EUR,
-                    amount: euro,
-                })
-            }
             _ => bail!("Unsupported unit"),
-        }
-    }
-
-    fn currency_unit_eq_strike(unit: &CurrencyUnit, strike: &StrikeCurrencyUnit) -> bool {
-        match (unit, strike) {
-            (CurrencyUnit::Sat, StrikeCurrencyUnit::BTC) => true,
-            (CurrencyUnit::Msat, StrikeCurrencyUnit::BTC) => true, // msat is subunit of BTC
-            (CurrencyUnit::Usd, StrikeCurrencyUnit::USD) => true,
-            (CurrencyUnit::Eur, StrikeCurrencyUnit::EUR) => true,
-            _ => false,
-        }
-    }
-
-    fn convert_fee_to_unit(
-        fee_amount: StrikeAmount,
-        target_unit: &CurrencyUnit,
-        rate: strike_rs::ConversionRate,
-    ) -> anyhow::Result<u64> {
-        // Only support conversion between BTC (sats) and USD/EUR for now
-        let rate = rate.amount;
-        match (&fee_amount.currency, target_unit) {
-            (StrikeCurrencyUnit::USD, CurrencyUnit::Sat)
-            | (StrikeCurrencyUnit::EUR, CurrencyUnit::Sat) => {
-                // rate: X USD per BTC, so 1 USD = 1/X BTC = 100_000_000/X sats
-                let sats = (fee_amount.amount * 100_000_000.0 / rate).round() as u64;
-                Ok(sats)
-            }
-            (StrikeCurrencyUnit::USD, CurrencyUnit::Msat)
-            | (StrikeCurrencyUnit::EUR, CurrencyUnit::Msat) => {
-                let msats = (fee_amount.amount * 100_000_000_000.0 / rate).round() as u64;
-                Ok(msats)
-            }
-            (StrikeCurrencyUnit::USD, CurrencyUnit::Usd)
-            | (StrikeCurrencyUnit::EUR, CurrencyUnit::Eur) => {
-                // fee is already in correct fiat unit, return as cents
-                Ok((fee_amount.amount * 100.0).round() as u64)
-            }
-            _ => Err(anyhow!(
-                "Unsupported fee currency/unit conversion: {:?} -> {:?}",
-                fee_amount.currency,
-                target_unit
-            )),
         }
     }
 }
@@ -1137,10 +816,10 @@ mod tests {
     use std::sync::Arc;
 
     use async_trait::async_trait;
-    use cdk_common::database::mint::{
-        DbTransactionFinalizer, KVStore, KVStoreDatabase, KVStoreTransaction,
-    };
     use cdk_common::database::Error as DatabaseError;
+    use cdk_common::database::{
+        DbTransactionFinalizer, DynKVStore, KVStore, KVStoreDatabase, KVStoreTransaction,
+    };
     use cdk_common::nuts::CurrencyUnit;
     use strike_rs::{Amount as StrikeAmount, Currency as StrikeCurrencyUnit};
     use tokio::sync::Mutex;
@@ -1183,7 +862,7 @@ mod tests {
     }
 
     #[async_trait]
-    impl<'a> KVStoreTransaction<'a, DatabaseError> for MockKVTransaction {
+    impl KVStoreTransaction<DatabaseError> for MockKVTransaction {
         async fn kv_read(
             &mut self,
             primary_namespace: &str,
@@ -1253,10 +932,9 @@ mod tests {
 
     #[async_trait]
     impl KVStore for MockKVStore {
-        async fn begin_transaction<'a>(
-            &'a self,
-        ) -> Result<Box<dyn KVStoreTransaction<'a, Self::Err> + Send + Sync + 'a>, DatabaseError>
-        {
+        async fn begin_transaction(
+            &self,
+        ) -> Result<Box<dyn KVStoreTransaction<Self::Err> + Send + Sync>, DatabaseError> {
             Ok(Box::new(MockKVTransaction {
                 store: Arc::new(MockKVStore {
                     data: self.data.clone(),
@@ -1266,7 +944,7 @@ mod tests {
         }
     }
 
-    fn create_mock_kv_store() -> DynMintKVStore {
+    fn create_mock_kv_store() -> DynKVStore {
         Arc::new(MockKVStore::default())
     }
 
@@ -1305,14 +983,9 @@ mod tests {
             to_strike_currency(&CurrencyUnit::Msat).unwrap(),
             StrikeCurrencyUnit::BTC
         );
-        assert_eq!(
-            to_strike_currency(&CurrencyUnit::Usd).unwrap(),
-            StrikeCurrencyUnit::USD
-        );
-        assert_eq!(
-            to_strike_currency(&CurrencyUnit::Eur).unwrap(),
-            StrikeCurrencyUnit::EUR
-        );
+        // Fiat currencies are no longer supported
+        assert!(to_strike_currency(&CurrencyUnit::Usd).is_err());
+        assert!(to_strike_currency(&CurrencyUnit::Eur).is_err());
     }
 
     // Amount conversion tests - core functionality
@@ -1340,29 +1013,6 @@ mod tests {
     }
 
     #[test]
-    fn test_from_strike_amount_fiat() {
-        // USD to cents
-        let amount = StrikeAmount {
-            currency: StrikeCurrencyUnit::USD,
-            amount: 10.50,
-        };
-        assert_eq!(
-            Strike::from_strike_amount(amount, &CurrencyUnit::Usd).unwrap(),
-            1050
-        );
-
-        // EUR to cents
-        let amount = StrikeAmount {
-            currency: StrikeCurrencyUnit::EUR,
-            amount: 25.75,
-        };
-        assert_eq!(
-            Strike::from_strike_amount(amount, &CurrencyUnit::Eur).unwrap(),
-            2575
-        );
-    }
-
-    #[test]
     fn test_from_strike_amount_currency_mismatch() {
         let amount = StrikeAmount {
             currency: StrikeCurrencyUnit::USD,
@@ -1379,10 +1029,13 @@ mod tests {
         assert_eq!(result.currency, StrikeCurrencyUnit::BTC);
         assert_eq!(result.amount, 1.0);
 
-        // USD cents to dollars
-        let result = Strike::to_strike_unit(1050u64, &CurrencyUnit::Usd).unwrap();
-        assert_eq!(result.currency, StrikeCurrencyUnit::USD);
-        assert_eq!(result.amount, 10.50);
+        // Msats to BTC
+        let result = Strike::to_strike_unit(100_000_000_000u64, &CurrencyUnit::Msat).unwrap();
+        assert_eq!(result.currency, StrikeCurrencyUnit::BTC);
+        assert_eq!(result.amount, 1.0);
+
+        // Fiat currencies are no longer supported
+        assert!(Strike::to_strike_unit(1050u64, &CurrencyUnit::Usd).is_err());
     }
 
     #[test]
@@ -1392,40 +1045,6 @@ mod tests {
         let strike_amount = Strike::to_strike_unit(original_sats, &CurrencyUnit::Sat).unwrap();
         let converted_back = Strike::from_strike_amount(strike_amount, &CurrencyUnit::Sat).unwrap();
         assert_eq!(original_sats, converted_back);
-    }
-
-    #[test]
-    fn test_currency_unit_eq_strike() {
-        assert!(Strike::currency_unit_eq_strike(
-            &CurrencyUnit::Sat,
-            &StrikeCurrencyUnit::BTC
-        ));
-        assert!(Strike::currency_unit_eq_strike(
-            &CurrencyUnit::Usd,
-            &StrikeCurrencyUnit::USD
-        ));
-        assert!(!Strike::currency_unit_eq_strike(
-            &CurrencyUnit::Sat,
-            &StrikeCurrencyUnit::USD
-        ));
-    }
-
-    // Fee conversion test
-    #[test]
-    fn test_convert_fee_to_unit() {
-        let fee_amount = StrikeAmount {
-            currency: StrikeCurrencyUnit::USD,
-            amount: 1.0,
-        };
-
-        let rate = strike_rs::ConversionRate {
-            amount: 50000.0,
-            source_currency: StrikeCurrencyUnit::USD,
-            target_currency: StrikeCurrencyUnit::BTC,
-        };
-
-        let result = Strike::convert_fee_to_unit(fee_amount, &CurrencyUnit::Sat, rate).unwrap();
-        assert_eq!(result, 2000); // $1 at $50k/BTC = 2000 sats
     }
 
     // Strike instance tests
