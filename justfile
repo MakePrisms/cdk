@@ -511,6 +511,7 @@ release m="":
     "-p cdk-payment-processor"
     "-p cdk-cli"
     "-p cdk-mintd"
+    "-p cdk-strike"
   )
 
   for arg in "${args[@]}";
@@ -552,6 +553,7 @@ check-docs:
     "-p cdk-cli"
     "-p cdk-mintd"
     "-p cdk-ffi"
+    "-p cdk-strike"
   )
 
   for arg in "${args[@]}"; do
@@ -586,6 +588,7 @@ docs-strict:
     "-p cdk-cli"
     "-p cdk-mintd"
     "-p cdk-ffi"
+    "-p cdk-strike"
   )
 
   for arg in "${args[@]}"; do

@@ -138,6 +138,8 @@ pub enum LnBackend {
     LdkNode,
     #[cfg(feature = "grpc-processor")]
     GrpcProcessor,
+    #[cfg(feature = "strike")]
+    Strike,
 }
 
 impl std::str::FromStr for LnBackend {
@@ -157,6 +159,8 @@ impl std::str::FromStr for LnBackend {
             "ldk-node" | "ldknode" => Ok(LnBackend::LdkNode),
             #[cfg(feature = "grpc-processor")]
             "grpcprocessor" => Ok(LnBackend::GrpcProcessor),
+            #[cfg(feature = "strike")]
+            "strike" => Ok(LnBackend::Strike),
             _ => Err(format!("Unknown Lightning backend: {s}")),
         }
     }
@@ -424,6 +428,17 @@ fn default_grpc_port() -> u16 {
     50051
 }
 
+#[cfg(feature = "strike")]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Strike {
+    pub api_key: String,
+    pub supported_units: Vec<CurrencyUnit>,
+    /// Optional webhook URL base. If not set, uses the mint's info.url.
+    /// Set this when your mint runs behind NAT or has different internal/external URLs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webhook_url: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum DatabaseEngine {
@@ -574,6 +589,8 @@ pub struct Settings {
     pub auth: Option<Auth>,
     #[cfg(feature = "prometheus")]
     pub prometheus: Option<Prometheus>,
+    #[cfg(feature = "strike")]
+    pub strike: Option<Strike>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

@@ -87,7 +87,7 @@ max_connections = 20
 connection_timeout_seconds = 10
 
 [ln]
-# Required ln backend `cln`, `lnd`, `fakewallet`, 'lnbits', 'ldknode'
+# Required ln backend `cln`, `lnd`, `fakewallet`, 'lnbits', 'ldknode', 'strike'
 ln_backend = "fakewallet"
 # min_mint=1
 # max_mint=500000
@@ -174,6 +174,12 @@ max_delay_time = 3
 # your gRPC payment processor should return them in the `custom` field of 
 # the get_settings() response. The mint will automatically create routes
 # for these methods (e.g., /v1/mint/quote/paypal, /v1/mint/paypal, etc.)
+
+# [strike]
+# api_key = "your_strike_api_key_here"
+# supported_units = ["sat"]
+# Optional: Override webhook URL when mint is behind NAT or has different internal/external URLs
+# webhook_url = "https://your-public-domain.com"
 
 # [auth]
 # Set to true to enable authentication features (defaults to false)
