@@ -178,6 +178,8 @@ max_delay_time = 3
 # [strike]
 # api_key = "your_strike_api_key_here"
 # supported_units = ["sat"]
+# Optional: Override webhook URL when mint is behind NAT or has different internal/external URLs
+# webhook_url = "https://your-public-domain.com"
 
 # [auth]
 # Set to true to enable authentication features (defaults to false)

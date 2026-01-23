@@ -371,13 +371,23 @@ impl config::Strike {
         &self,
         settings: &Settings,
         unit: CurrencyUnit,
-        kv_store: cdk_common::database::mint::DynMintKVStore,
+        kv_store: cdk_common::database::DynKVStore,
     ) -> anyhow::Result<(cdk_strike::Strike, axum::Router)> {
         use cdk::mint_url::MintUrl;
 
         let webhook_endpoint = format!("/webhook/strike/{}/invoice", unit);
-        let mint_url: MintUrl = settings.info.url.parse()?;
-        let webhook_url = mint_url.join(&webhook_endpoint)?;
+
+        // Use explicit webhook_url if provided, otherwise fall back to mint's info.url
+        let webhook_url = match &self.webhook_url {
+            Some(base_url) => {
+                let base: MintUrl = base_url.parse()?;
+                base.join(&webhook_endpoint)?
+            }
+            None => {
+                let mint_url: MintUrl = settings.info.url.parse()?;
+                mint_url.join(&webhook_endpoint)?
+            }
+        };
 
         let strike = cdk_strike::Strike::new(
             self.api_key.clone(),

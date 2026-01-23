@@ -433,6 +433,10 @@ fn default_grpc_port() -> u16 {
 pub struct Strike {
     pub api_key: String,
     pub supported_units: Vec<CurrencyUnit>,
+    /// Optional webhook URL base. If not set, uses the mint's info.url.
+    /// Set this when your mint runs behind NAT or has different internal/external URLs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webhook_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Default)]
