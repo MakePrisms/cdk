@@ -397,7 +397,7 @@ impl config::Strike {
         )
         .await?;
 
-        let webhook_router = strike.create_invoice_webhook(&webhook_endpoint).await?;
+        let webhook_router = strike.create_invoice_webhook(&webhook_endpoint)?;
 
         Ok((strike, webhook_router))
     }

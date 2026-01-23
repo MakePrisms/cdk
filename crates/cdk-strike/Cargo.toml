@@ -23,4 +23,10 @@ thiserror.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 axum.workspace = true
-strike-rs = { git = "https://github.com/gudnuf/strike-rs.git", rev = "eb59400365122f13e3dc074618f0b4251252e02a"}
+reqwest.workspace = true
+serde.workspace = true
+url.workspace = true
+rand.workspace = true
+ring = "0.17"
+hex = "0.4"
+urlencoding = "2"

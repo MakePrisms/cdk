@@ -10,6 +10,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{anyhow, bail};
+use api::{
+    types::{
+        Amount as StrikeAmount, Currency as StrikeCurrencyUnit, Filter, InvoiceQueryParams,
+        InvoiceRequest, InvoiceState, PayInvoiceQuoteRequest,
+    },
+    StrikeApi,
+};
 use async_trait::async_trait;
 use axum::Router;
 use cdk_common::amount::Amount;
@@ -25,15 +32,12 @@ use cdk_common::Bolt11Invoice;
 use error::Error;
 use futures::stream::StreamExt;
 use futures::Stream;
-use strike_rs::{
-    Amount as StrikeAmount, Currency as StrikeCurrencyUnit, InvoiceQueryParams, InvoiceRequest,
-    InvoiceState, PayInvoiceQuoteRequest, Strike as StrikeApi,
-};
 use tokio::sync::Mutex;
 use tokio_stream::wrappers::BroadcastStream;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
+pub mod api;
 pub mod error;
 
 const CORRELATION_ID_PREFIX: &str = "TXID:";
@@ -119,7 +123,7 @@ impl Strike {
         webhook_url: String,
         kv_store: DynKVStore,
     ) -> Result<Self, Error> {
-        let strike_api = StrikeApi::new(&api_key, None).map_err(Error::from)?;
+        let strike_api = StrikeApi::new(&api_key, None, 30_000).map_err(Error::from)?;
 
         // Create broadcast channel for payment events (webhook notifications)
         let (sender, receiver) = tokio::sync::broadcast::channel::<String>(1000);
@@ -147,9 +151,9 @@ impl Strike {
     async fn lookup_invoice_by_correlation_id(
         &self,
         correlation_id: &str,
-    ) -> Result<strike_rs::InvoiceListItem, Error> {
-        let query_params = InvoiceQueryParams::new()
-            .filter(strike_rs::Filter::eq("correlationId", correlation_id));
+    ) -> Result<api::types::InvoiceListItem, Error> {
+        let query_params =
+            InvoiceQueryParams::new().filter(Filter::eq("correlationId", correlation_id));
 
         let invoice_list = self
             .strike_api
@@ -340,7 +344,7 @@ impl Strike {
 
     async fn handle_internal_payment_quote(
         &self,
-        internal_invoice: strike_rs::InvoiceListItem,
+        internal_invoice: api::types::InvoiceListItem,
         correlation_id: &str,
     ) -> Result<PaymentQuoteResponse, payment::Error> {
         let amount = Strike::from_strike_amount(internal_invoice.amount, &self.unit)?;
@@ -367,7 +371,7 @@ impl Strike {
             InvoiceState::Paid | InvoiceState::Completed => MeltQuoteState::Paid,
             InvoiceState::Unpaid => MeltQuoteState::Unpaid,
             InvoiceState::Pending => MeltQuoteState::Pending,
-            InvoiceState::Failed => MeltQuoteState::Failed,
+            InvoiceState::Failed | InvoiceState::Cancelled => MeltQuoteState::Failed,
         };
 
         let total_spent = Strike::from_strike_amount(internal_invoice.amount, &self.unit)?;
@@ -391,7 +395,7 @@ impl Strike {
                     InvoiceState::Paid | InvoiceState::Completed => MeltQuoteState::Paid,
                     InvoiceState::Unpaid => MeltQuoteState::Unpaid,
                     InvoiceState::Pending => MeltQuoteState::Pending,
-                    InvoiceState::Failed => MeltQuoteState::Failed,
+                    InvoiceState::Failed | InvoiceState::Cancelled => MeltQuoteState::Failed,
                 };
 
                 let total_spent = Strike::from_strike_amount(invoice.total_amount, &self.unit)?;
@@ -403,7 +407,7 @@ impl Strike {
                     total_spent: Amount::new(total_spent, self.unit.clone()),
                 })
             }
-            Err(strike_rs::Error::NotFound) => Ok(MakePaymentResponse {
+            Err(api::error::Error::NotFound) => Ok(MakePaymentResponse {
                 payment_lookup_id: payment_identifier.clone(),
                 payment_proof: None,
                 status: MeltQuoteState::Unknown,
@@ -517,6 +521,7 @@ impl MintPayment for Strike {
         let payment_quote_request = PayInvoiceQuoteRequest {
             ln_invoice: bolt11.to_string(),
             source_currency,
+            amount: None,
         };
 
         let quote = self
@@ -565,6 +570,7 @@ impl MintPayment for Strike {
         let payment_quote_request = PayInvoiceQuoteRequest {
             ln_invoice: bolt11.to_string(),
             source_currency,
+            amount: None,
         };
 
         let quote = self
@@ -583,7 +589,7 @@ impl MintPayment for Strike {
             InvoiceState::Paid | InvoiceState::Completed => MeltQuoteState::Paid,
             InvoiceState::Unpaid => MeltQuoteState::Unpaid,
             InvoiceState::Pending => MeltQuoteState::Pending,
-            InvoiceState::Failed => MeltQuoteState::Failed,
+            InvoiceState::Failed | InvoiceState::Cancelled => MeltQuoteState::Failed,
         };
 
         let total_spent = Strike::from_strike_amount(pay_response.total_amount, unit)?;
@@ -693,7 +699,10 @@ impl MintPayment for Strike {
                         payment_id: invoice.invoice_id,
                     }])
                 }
-                InvoiceState::Unpaid | InvoiceState::Pending | InvoiceState::Failed => Ok(vec![]),
+                InvoiceState::Unpaid
+                | InvoiceState::Pending
+                | InvoiceState::Failed
+                | InvoiceState::Cancelled => Ok(vec![]),
             },
             Err(err) => {
                 tracing::error!(
@@ -747,7 +756,7 @@ impl Strike {
     }
 
     /// Create invoice webhook router
-    pub async fn create_invoice_webhook(&self, webhook_endpoint: &str) -> anyhow::Result<Router> {
+    pub fn create_invoice_webhook(&self, webhook_endpoint: &str) -> anyhow::Result<Router> {
         // Create an adapter channel to bridge mpsc -> broadcast
         let (mpsc_sender, mut mpsc_receiver) = tokio::sync::mpsc::channel::<String>(1000);
         let broadcast_sender = self.sender();
@@ -764,9 +773,11 @@ impl Strike {
             }
         });
 
-        self.strike_api
-            .create_invoice_webhook_router(webhook_endpoint, mpsc_sender)
-            .await
+        Ok(api::webhook::create_invoice_webhook_router(
+            webhook_endpoint,
+            mpsc_sender,
+            self.strike_api.webhook_secret().to_string(),
+        ))
     }
 }
 
@@ -815,13 +826,13 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
+    use crate::api::types::{Amount as StrikeAmount, Currency as StrikeCurrencyUnit};
     use async_trait::async_trait;
     use cdk_common::database::Error as DatabaseError;
     use cdk_common::database::{
         DbTransactionFinalizer, DynKVStore, KVStore, KVStoreDatabase, KVStoreTransaction,
     };
     use cdk_common::nuts::CurrencyUnit;
-    use strike_rs::{Amount as StrikeAmount, Currency as StrikeCurrencyUnit};
     use tokio::sync::Mutex;
     use uuid::Uuid;
 

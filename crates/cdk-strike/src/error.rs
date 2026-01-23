@@ -1,6 +1,6 @@
 //! Error for Strike ln backend
 
-use strike_rs::Error as StrikeRsError;
+use crate::api::error::Error as StrikeApiError;
 use thiserror::Error;
 
 /// Strike Error
@@ -15,9 +15,9 @@ pub enum Error {
     /// Unsupported unit
     #[error("Unsupported unit")]
     UnsupportedUnit,
-    /// Strike-rs error
+    /// Strike API error
     #[error(transparent)]
-    StrikeRs(#[from] StrikeRsError),
+    StrikeApi(#[from] StrikeApiError),
     /// Anyhow error
     #[error(transparent)]
     Anyhow(#[from] anyhow::Error),

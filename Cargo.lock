@@ -1731,13 +1731,19 @@ dependencies = [
  "axum 0.8.8",
  "cdk-common",
  "futures",
+ "hex",
+ "rand 0.9.2",
+ "reqwest",
+ "ring 0.17.14",
+ "serde",
  "serde_json",
- "strike-rs",
  "thiserror 2.0.17",
  "tokio",
  "tokio-stream",
  "tokio-util",
  "tracing",
+ "url",
+ "urlencoding",
  "uuid",
 ]
 
@@ -6839,26 +6845,6 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
-name = "strike-rs"
-version = "0.5.0"
-source = "git+https://github.com/gudnuf/strike-rs.git?rev=eb59400365122f13e3dc074618f0b4251252e02a#eb59400365122f13e3dc074618f0b4251252e02a"
-dependencies = [
- "anyhow",
- "axum 0.8.8",
- "log",
- "rand 0.9.2",
- "reqwest",
- "ring 0.17.14",
- "serde",
- "serde_json",
- "thiserror 2.0.17",
- "tokio",
- "tower 0.5.3",
- "url",
- "urlencoding",
-]
 
 [[package]]
 name = "stringprep"
