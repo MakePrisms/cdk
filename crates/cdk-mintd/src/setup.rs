@@ -364,3 +364,31 @@ impl LnBackendSetup for config::LdkNode {
         Ok(ldk_node)
     }
 }
+
+#[cfg(feature = "strike")]
+impl config::Strike {
+    pub async fn setup(
+        &self,
+        settings: &Settings,
+        unit: CurrencyUnit,
+        kv_store: cdk_common::database::mint::DynMintKVStore,
+    ) -> anyhow::Result<(cdk_strike::Strike, axum::Router)> {
+        use cdk::mint_url::MintUrl;
+
+        let webhook_endpoint = format!("/webhook/strike/{}/invoice", unit);
+        let mint_url: MintUrl = settings.info.url.parse()?;
+        let webhook_url = mint_url.join(&webhook_endpoint)?;
+
+        let strike = cdk_strike::Strike::new(
+            self.api_key.clone(),
+            unit,
+            webhook_url.to_string(),
+            kv_store,
+        )
+        .await?;
+
+        let webhook_router = strike.create_invoice_webhook(&webhook_endpoint).await?;
+
+        Ok((strike, webhook_router))
+    }
+}

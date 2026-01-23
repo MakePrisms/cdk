@@ -122,6 +122,7 @@ nostr-sdk = { version = "0.44.1", default-features = false, features = [
     "nip59"
 ]}
 
+cdk-strike = { path = "./crates/cdk-strike", version = "=0.13.0" }
 
 
 
